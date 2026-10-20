@@ -11,6 +11,10 @@
 
 #include "ax_vo_common.h"
 
+#ifdef CONFIG_ONEKVM_SD_BOOT
+#include "bootlogo/onekvm_logo.h"
+#endif
+
 struct Image {
   const unsigned char *data;
   unsigned int len;
@@ -312,22 +316,18 @@ static bool lcd_bl_off(struct panel_spi_device *panel) {
   return ugpio_inact(&panel->bl);
 }
 
-int panel_spi_init(void) {
+static int panel_spi_init(struct udevice *dev) {
   int i, k, len, addr, cmd_len, delay, cmd, ret, pdata_len;
   const u8 *data;
   const u8 *pdata = NULL;
-  struct udevice *dev = NULL;
   struct spi_slave *slave;
   struct panel_spi_device *panel_spi;
+#ifndef CONFIG_ONEKVM_SD_BOOT
   int image_index = -1;
   bool fixed_image = false;
   char server_buf[32];
-
-  ret = uclass_first_device_err(UCLASS_PANEL_SPI, &dev);
-  if (ret) {
-    VO_ERROR("failed to find spi panel, ret = %d\n", ret);
-    return -1;
-  }
+#endif
+  ret = 0;
 
   slave = dev_get_parent_priv(dev);
   panel_spi = dev_get_uclass_priv(dev);
@@ -342,6 +342,7 @@ int panel_spi_init(void) {
     cmd_len = 0;
     if (!lcd_reset(panel_spi, 130)) {
       VO_ERROR("lcd reset failed!");
+      ret = -EIO;
       goto release;
     }
     for (i = 0; i < len; i += (cmd_len + 3)) {
@@ -379,6 +380,43 @@ int panel_spi_init(void) {
     }
   }
 
+#ifdef CONFIG_ONEKVM_SD_BOOT
+  {
+    /* RLE decodes into a bounded wire buffer; pixels are RGB565, MSB first. */
+    u8 pixels[512];
+    unsigned int used = 0;
+    unsigned int run, count;
+
+    if (!lcd_command(panel_spi)) {
+      ret = -EIO;
+      goto release;
+    }
+    ret = spi_xfer(slave, 8, "\x2c", NULL, SPI_XFER_ONCE);
+    if (ret || !lcd_data(panel_spi)) {
+      ret = ret ? ret : -EIO;
+      goto release;
+    }
+    for (run = 0; run < ARRAY_SIZE(onekvm_logo_runs); run += 2) {
+      u16 color = onekvm_logo_runs[run + 1];
+      for (count = 0; count < onekvm_logo_runs[run]; count++) {
+        pixels[used++] = color >> 8;
+        pixels[used++] = color;
+        if (used == sizeof(pixels)) {
+          ret = spi_xfer(slave, used * 8, pixels, NULL, SPI_XFER_ONCE);
+          if (ret)
+            goto release;
+          used = 0;
+        }
+      }
+    }
+    if (used) {
+      ret = spi_xfer(slave, used * 8, pixels, NULL, SPI_XFER_ONCE);
+      if (ret)
+        goto release;
+    }
+    puts("OneKVM: boot logo ready (JD9853 172x320)\n");
+  }
+#else
   image_index = 0;
   fixed_image = panel_spi_get_fixed_image_index(&image_index);
 
@@ -413,6 +451,7 @@ int panel_spi_init(void) {
   lcd_data(panel_spi);
   spi_xfer(slave, IMAGES[image_index].len * 8, IMAGES[image_index].data, NULL,
            SPI_XFER_ONCE);
+#endif
 
   if (device_is_compatible(dev, "sipeed,for_st7789p3")) {
     msleep(100);
@@ -422,7 +461,7 @@ int panel_spi_init(void) {
 
 release:
   spi_release_bus(slave);
-  return 0;
+  return ret;
 }
 
 int panel_spi_show_recovery_logo(void)
@@ -571,14 +610,12 @@ static int panel_spi_probe(struct udevice *dev) {
   if (ret)
     return ret;
 
-  panel_spi_init();
-
-  return 0;
+  return panel_spi_init(dev);
 }
 
 static const struct udevice_id panel_spi_ids[] = {
     {.compatible = "axera,panel_spi"},
-#ifdef UBOOT_SPI2_SIPEED_LOGO
+#if defined(UBOOT_SPI2_SIPEED_LOGO) || defined(CONFIG_ONEKVM_SD_BOOT)
     {.compatible = "sipeed,for_jd9853"},
     {.compatible = "sipeed,for_st7789p3"},
 #endif

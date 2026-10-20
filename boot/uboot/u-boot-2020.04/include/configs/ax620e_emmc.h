@@ -10,7 +10,11 @@
 #include <configs/ax620e_common.h>
 
 #define COUNTER_FREQUENCY    24000000
+#ifdef CONFIG_ONEKVM_SD_BOOT
+#define MEM_REGION_DDR_SIZE (0x40000000UL)
+#else
 #define MEM_REGION_DDR_SIZE (0x100000000UL)
+#endif
 
 /* boot-logo related buffer address */
 #define LOGO_IMAGE_LOAD_ADDR 0x70000000U
@@ -19,7 +23,11 @@
 
 #define CONFIG_SYS_MALLOC_LEN		(64 << 20)	//64M
 
+#ifdef CONFIG_ONEKVM_SD_BOOT
+#define SDRAM_BANK_SIZE			(1UL << 30)
+#else
 #define SDRAM_BANK_SIZE			(2UL << 30)
+#endif
 
 #ifdef CONFIG_AXERA_AX630C_DDR4_RETRAIN
 #define SDHCI_ALIGN_BUF_ADDR	0x40001000

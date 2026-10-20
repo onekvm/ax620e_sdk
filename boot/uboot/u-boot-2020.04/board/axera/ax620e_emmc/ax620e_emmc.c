@@ -326,7 +326,20 @@ void enable_caches(void)
 }
 #endif
 
-#if CONFIG_AXERA_AX630C_DDR4_RETRAIN
+#ifdef CONFIG_ONEKVM_SD_BOOT
+int dram_init(void)
+{
+	gd->ram_size = 0x3ffff000;
+	return 0;
+}
+
+int dram_init_banksize(void)
+{
+	gd->bd->bi_dram[0].start = 0x40001000;
+	gd->bd->bi_dram[0].size = 0x3ffff000;
+	return 0;
+}
+#elif CONFIG_AXERA_AX630C_DDR4_RETRAIN
 int dram_init(void)
 {
 	gd->ram_size = 0x7FFFF000;

@@ -2673,7 +2673,8 @@ static int mmc_startup_v4(struct mmc *mmc)
 #endif
 
 	mmc->wr_rel_set = ext_csd[EXT_CSD_WR_REL_SET];
-#ifdef EMMC_RESET_N_FUNCTION
+/* SD U-Boot must not program persistent eMMC reset configuration. */
+#if defined(EMMC_RESET_N_FUNCTION) && !defined(CONFIG_ONEKVM_SD_BOOT)
 	if (IS_MMC(mmc)) {
 		switch (ext_csd[EXT_CSD_RST_N_FUNCTION]) {
 		case 0:

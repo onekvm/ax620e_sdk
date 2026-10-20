@@ -12,5 +12,15 @@ config SYS_CONFIG_NAME
 config BOARD_SPECIFIC_OPTIONS # dummy
 	def_bool y
 
+config ONEKVM_SD_BOOT
+	bool "OneKVM NanoKVM Pro SD boot image"
+	depends on ARM64
+	depends on ENV_IS_NOWHERE && !ENV_IS_IN_MMC
+	depends on !ARMV8_SWITCH_TO_EL1
+	help
+	  Isolated SD U-Boot for the 1 GiB NanoKVM Pro. Boot the SD boot.scr,
+	  retain EL2, and keep all environment changes in RAM. This option is
+	  disabled in vendor eMMC configurations.
+
 
 endif

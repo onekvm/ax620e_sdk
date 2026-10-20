@@ -22,6 +22,10 @@ obj-${CONFIG_VIDEO_ROCKCHIP} += rockchip/
 obj-${CONFIG_VIDEO_STM32} += stm32/
 obj-${CONFIG_VIDEO_TEGRA124} += tegra124/
 obj-${CONFIG_VIDEO_AXERA} += axera/
+ifeq ($(CONFIG_VIDEO_AXERA),)
+# The SD boot splash needs only the SPI panel, not the HDMI/MIPI display stack.
+obj-$(CONFIG_ONEKVM_SD_BOOT) += axera/panel_spi.o
+endif
 
 obj-$(CONFIG_AM335X_LCD) += am335x-fb.o
 obj-$(CONFIG_ATI_RADEON_FB) += ati_radeon_fb.o videomodes.o

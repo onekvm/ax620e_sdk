@@ -5,6 +5,9 @@
  */
 
 #include <common.h>
+#ifdef CONFIG_ONEKVM_SD_BOOT
+#include <dm.h>
+#endif
 #include <asm/armv8/mmu.h>
 #include <asm/io.h>
 #include <sdhci.h>
@@ -637,6 +640,23 @@ static void config_uboot_autoboot_key_from_boot(void)
 // ### SIPEED EDIT END ###
 int board_late_init(void)
 {
+#ifdef CONFIG_ONEKVM_SD_BOOT
+	/* Do not enter vendor A/B/env bookkeeping or import factory OS arguments. */
+	print_board_info();
+	boot_info_data = *get_dl_and_boot_info();
+	wdt0_enable(0);
+	set_ephy_led_pol();
+	env_set("initrd_high", "ffffffffffffffff");
+	env_set("bootcmd", "onekvm_sd_boot");
+	{
+		struct udevice *panel;
+		int ret = uclass_first_device_err(UCLASS_PANEL_SPI, &panel);
+
+		if (ret)
+			printf("OneKVM: boot logo unavailable (%d)\n", ret);
+	}
+	return 0;
+#endif
 #ifdef CONFIG_SUPPORT_AB
 	set_slot_ab();
 #endif

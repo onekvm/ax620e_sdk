@@ -6,3 +6,4 @@
 ccflags-y += -Werror -I${HOME_PATH}/build/projects/${PROJECT}/pinmux/
 obj-y	+= ax620e_emmc.o
 obj-y	+= pinmux.o
+obj-$(CONFIG_ONEKVM_SD_BOOT) += onekvm_sd.o

@@ -142,4 +142,6 @@ void print_chip_type(void);
 void store_chip_type(void);
 void wdt0_enable(bool enable);
 void set_ephy_led_pol(void);
+int generic_timer_init(void);
+
 #endif
