@@ -112,4 +112,11 @@ extern bl_params_t atf_bl_params;
 extern bl_params_node_t atf_bl33_params;
 extern entry_point_info_t atf_bl33_ep_info;
 int atf_boot_prepare(unsigned long uboot_addr, unsigned long optee_addr);
+#ifdef OPTEE_BOOT
+extern bl_params_node_t atf_bl32_params;
+extern entry_point_info_t atf_bl32_ep_info;
+#endif
+#ifdef AX_SPL_SD_FIRST
+int atf_boot_prepare_el2(unsigned long uboot_addr, unsigned long optee_addr);
+#endif
 #endif

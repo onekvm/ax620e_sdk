@@ -241,4 +241,7 @@ int sdhci_phy_init(void *hrs_addr, CARD_TYPE card_type);
 void sdhci_set_power(void *host, CARD_TYPE card_type);
 int sdhci_set_clock(void *host, unsigned int clock, unsigned int base_clock);
 int update_delayline_setting(void *host);
+#ifdef AX_SPL_SD_FIRST
+void sdhci_sd_probe_stop(void);
+#endif
 #endif

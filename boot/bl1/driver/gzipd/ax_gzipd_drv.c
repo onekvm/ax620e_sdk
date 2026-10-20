@@ -11,6 +11,9 @@
 #include "ax_gzipd_adapter.h"
 #include "ax_gzipd_reg.h"
 #include "ax_gzipd_api.h"
+#ifdef AX_SPL_SD_FIRST
+#include "sd_first.h"
+#endif
 #ifdef AX_GZIPD_CRC_ENABLE
 #include "crc32_mpeg2.h"
 #endif
@@ -91,6 +94,10 @@ static int wait_intr(u32 intr_mask)
 {
 	u32 loop = 5000;
 	while ((gzip_reg_read(GZIPD_STATUS1_REG) & intr_mask) == 0 && --loop) {
+#ifdef AX_SPL_SD_FIRST
+		if (sd_first_probe_expired())
+			return gzipd_error;
+#endif
 		udelay(1*1000);
 	}
 	if (loop == 0 || (gzip_reg_read(GZIPD_STATUS1_REG) & 0x1C)) {
@@ -120,6 +127,7 @@ int gzipd_dev_init(void)
 	__raw_writel(NPLL_533M << 9 | 0x5 << 6, FLASH_SYS_GLB_BASE_ADDR + FLASH_CLK_MUX0_REG_SET);
 
 	gzipdRegBaseVirAddr = (void *)AX_GZIPD_BASE_PADDR;
+	gzipdTriggerFlag = FALSE;
 
 #ifdef GZIPD_BYPASS_EN
 	__raw_writel(NPLL_533M << 9 | 0x5 << 6, FLASH_SYS_GLB_BASE_ADDR + FLASH_CLK_MUX0_REG_SET);
@@ -197,7 +205,7 @@ int gzipd_dev_cfg(u64 tileSize, void *out_addr, u64 isize, u64 osize, u32 blk_nu
 	}
 
 	*cnt = tile_cnt;
-	*last_size = validDataLen - (tile_cnt - 1) * gzipdTileSize;
+	*last_size = tile_cnt ? validDataLen - (tile_cnt - 1) * gzipdTileSize : validDataLen;
 	return gzipd_ok;
 }
 

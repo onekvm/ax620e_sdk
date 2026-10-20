@@ -19,9 +19,16 @@
 #include "trace.h"
 #include "libfdt.h"
 #include "timer.h"
+#ifdef AX_SPL_SD_FIRST
+#include "sd_first.h"
+#endif
+
+#if defined(AX620E_SUPPORT_SD) || defined(AX_SPL_SD_FIRST)
+#define AX_SPL_SD_LOADER
+#endif
 
 static int flash_clk_array[] = {200000000, 50000000, 25000000, 6000000};
-#if defined(AX620E_SUPPORT_SD)
+#if defined(AX_SPL_SD_LOADER)
 static FATFS fs;
 static FIL fil;
 static u8 fatfs_mounted = 0;
@@ -152,7 +159,7 @@ u32 calc_word_chksum(int *data, int size)
 	}
 	return sum;
 }
-#if defined(AX620E_SUPPORT_SD)
+#if defined(AX_SPL_SD_LOADER)
 int sdcard_read(u32 offset, u32 size, char *buf)
 {
 	int ret;
@@ -163,13 +170,18 @@ int sdcard_read(u32 offset, u32 size, char *buf)
 	ret = f_open(&fil, boot_image_file, FA_OPEN_EXISTING | FA_READ);
 	if(ret != FR_OK)
 		return -1;
+	/* A truncated file must not be accepted using bytes from the prior read. */
+	if (offset > f_size(&fil) || size > f_size(&fil) - offset) {
+		f_close(&fil);
+		return -1;
+	}
 	ret = f_lseek(&fil, offset);
 	if(ret != FR_OK) {
 		f_close(&fil);
 		return -1;
 	}
 	ret = f_read(&fil, buf, size, &bw);
-	if(ret != FR_OK) {
+	if(ret != FR_OK || bw != size) {
 		f_close(&fil);
 		return -1;
 	}
@@ -183,7 +195,7 @@ static int flash_init(u32 flash_type, u32 clk, u32 bus_width)
 	int ret;
 
 	switch (flash_type) {
-#if defined(AX620E_SUPPORT_SD)
+#if defined(AX_SPL_SD_LOADER)
 	case FLASH_SD:
 		ret = sd_init(clk, bus_width);
 		if (ret < 0) {
@@ -193,7 +205,7 @@ static int flash_init(u32 flash_type, u32 clk, u32 bus_width)
 		/* MUST mount fatfs after sd_init success */
 		if (!fatfs_mounted) {
 			ret = f_mount(&fs, "0:", 1);
-			if(ret == FR_NO_FILESYSTEM) {
+			if(ret != FR_OK) {
 				err("mount fat32 failed\r\n");
 				return -1;
 			}
@@ -255,7 +267,7 @@ int flash_read(u32 flash_type, char *buf, u32 flash_addr, int size)
 {
 	int ret;
 	switch (flash_type) {
-#if defined(AX620E_SUPPORT_SD)
+#if defined(AX_SPL_SD_LOADER)
 	case FLASH_SD:
 		ret = sdcard_read(flash_addr, size, buf);
 		if (ret < 0)
@@ -307,7 +319,7 @@ int flash_read(u32 flash_type, char *buf, u32 flash_addr, int size)
 #define IMAGE_COMPRESSED_PADDR 		0x5e000000
 #define SAMPLE_TILE_SIZE    (4 * 16 * 1024)
 #endif
-#if defined(AX620E_SUPPORT_SD)
+#if defined(AX620E_SUPPORT_SD) && !defined(AX620E_EMMC)
 #define IMAGE_COMPRESSED_PADDR 		0x58000000
 #define SAMPLE_TILE_SIZE    (4 * 16 * 1024)
 #endif
@@ -315,8 +327,55 @@ int flash_read(u32 flash_type, char *buf, u32 flash_addr, int size)
 #define AX_GZIPD_TRUE  1
 #define FIFO_DEPTH  16
 
+#ifdef AX_SPL_SD_FIRST
+static int sd_first_gzip_read(char *out, u32 offset, u32 size)
+{
+	gzipd_header_info_t header;
+	u32 tile_count, last_size, queued, index = 0;
+	u32 limit = (unsigned long)out == UBOOT_IMG_HEADER_BASE +
+		sizeof(struct img_header) ? SD_FIRST_UBOOT_MAX : SD_FIRST_ATF_MAX;
+	void *input = (void *)IMAGE_COMPRESSED_PADDR;
+	struct img_header *package = (struct img_header *)(out - sizeof(struct img_header));
+	unsigned long data;
+
+	if (sd_first_probe_expired() || size < sizeof(header) || size > limit ||
+	    flash_read(FLASH_SD, input, offset, size) < 0)
+		return -1;
+	/* Check the complete package before allowing its data to drive DMA. */
+	if (calc_word_chksum(input, size) != package->img_check_sum ||
+	    gzipd_dev_get_header_info(input, &header))
+		return -1;
+	if (header.isize <= sizeof(header) || header.isize > size ||
+	    !header.blk_num || header.blk_num > 0x7fff ||
+	    !header.osize || header.osize > limit || sd_first_probe_expired())
+		return -1;
+	if (gzipd_dev_cfg(SD_FIRST_TILE_SIZE, out, header.isize, header.osize,
+			 header.blk_num, &tile_count, &last_size))
+		return -1;
+	data = (unsigned long)input + sizeof(header);
+	while (tile_count && index < tile_count - 1) {
+		if (sd_first_probe_expired())
+			return -1;
+		if (gzipd_dev_run((void *)(data + index * SD_FIRST_TILE_SIZE),
+				 (void *)(data + (tile_count - 1) * SD_FIRST_TILE_SIZE), &queued))
+			return -1;
+		index += queued;
+		if (!queued)
+			udelay(100);
+	}
+	if (sd_first_probe_expired() ||
+	    gzipd_dev_run_last_tile((void *)(data + index * SD_FIRST_TILE_SIZE), last_size))
+		return -1;
+	return gzipd_dev_wait_complete_finish();
+}
+#endif
+
 static int gzip_pipeline_flash_read(u32 flash_type, char *buf, u32 flash_addr, int size)
 {
+#ifdef AX_SPL_SD_FIRST
+	if (flash_type == FLASH_SD)
+		return sd_first_gzip_read(buf, flash_addr, size);
+#endif
 	int ret;
 	gzipd_header_info_t header_info;
 	void *img_compressed_addr;
@@ -636,6 +695,14 @@ int read_img_header(u32 flash_type, struct img_header *header, struct img_header
 	if (support_ab)
 		flash_addr = ((img_info->boot_index == 0) || (img_info->boot_index == 2)) ? flash_addr : flash_addr_bk;
 
+#ifdef AX_SPL_ROM_TEST
+	/* ROM-SD has not supplied the eMMC ROM's tuned HS400 state. Use the
+	 * vendor's 50 MHz HS path for this lab-only fresh card enumeration.
+	 */
+	if (flash_type == FLASH_EMMC)
+		sel_clk = 1;
+#endif
+
 retry_read_bk:
 	if(flash_init(flash_type, flash_clk_array[sel_clk], bus_width) < 0) {
 		AX_LOG_STR_ERROR("spl flash init failed\r\n");
@@ -658,6 +725,19 @@ retry_read_bk:
 			goto retry_read_bk;
 		}
 	}
+
+#ifdef AX_SPL_SD_FIRST
+	if (flash_type == FLASH_SD) {
+		u32 limit = img_info->img_type == UBOOT ?
+			SD_FIRST_UBOOT_MAX : SD_FIRST_ATF_MAX;
+		if (boot_header->img_size < sizeof(gzipd_header_info_t) ||
+		    (boot_header->img_size & 3) ||
+		    boot_header->img_size > limit ||
+		    (boot_header->capability & IMG_CIPHER_ENABLE) ||
+		    !(boot_header->capability & IMG_CHECK_ENABLE))
+			return BOOT_READ_HEADER_FAIL;
+	}
+#endif
 
 	return 0;
 }
@@ -769,6 +849,10 @@ retry_read_bk:
 	if(img_info->img_type != DDRINIT) {
 		if(gzip_pipeline_flash_read(flash_type, img_addr, flash_addr, (boot_header->img_size + sizeof(u32) - 1) / sizeof(u32) * sizeof(u32)) < 0) {
 			AX_LOG_STR_ERROR("spl flash read failed\r\n");
+#ifdef AX_SPL_SD_FIRST
+			if (flash_type == FLASH_SD)
+				return BOOT_FLASH_READ_FAIL;
+#endif
 			if (check_enable) {
 				ret = BOOT_FLASH_READ_FAIL;
 			}
@@ -859,6 +943,9 @@ retry_read_bk:
 
 static void get_image_info(u32 flash_type, int boot_index, boot_img_e img_type, boot_image_info_t *image_info, u32 flash_ops, u32 flash_bk_ops)
 {
+	/* SD needs these fields too, notably the image type used by gzip/security. */
+	image_info->img_type = img_type;
+	image_info->boot_index = boot_index;
 	if(flash_type == FLASH_SD) {
 		boot_image_file = sd_img_name[img_type];
 		image_info->boot_header_flash_addr = 0;
@@ -866,8 +953,6 @@ static void get_image_info(u32 flash_type, int boot_index, boot_img_e img_type, 
 		image_info->boot_flash_addr = sizeof(struct img_header);
 		image_info->boot_flash_bk_addr = sizeof(struct img_header);
 	} else {
-		image_info->img_type = img_type;
-		image_info->boot_index = boot_index;
 		image_info->boot_header_flash_addr = flash_ops;
 		image_info->boot_header_flash_bk_addr = flash_bk_ops;
 		image_info->boot_flash_addr = flash_ops + sizeof(struct img_header);
@@ -930,6 +1015,31 @@ int boot_process(u32 flash_type, int boot_index, boot_img_e img_type, u32 flash_
 	}
 	return ret;
 }
+
+#ifdef AX_SPL_SD_FIRST
+int sd_first_load(boot_img_e image, unsigned long header_addr)
+{
+	/* Avoid flash_boot(): an SD probe must not advance eMMC A/B bookkeeping. */
+	if (image != UBOOT && image != ATF)
+		return -1;
+#ifdef SUPPPORT_GZIPD
+	if (gzipd_dev_init())
+		return -1;
+#endif
+	return boot_process(FLASH_SD, 0, image, 0, 0, header_addr);
+}
+
+void sd_first_close(void)
+{
+	f_mount(NULL, "0:", 0);
+	fatfs_mounted = 0;
+	sdhci_sd_probe_stop();
+#ifdef SUPPPORT_GZIPD
+	/* Stop any failed decompression before eMMC overwrites its destination. */
+	gzipd_dev_init();
+#endif
+}
+#endif
 
 static int select_slot_ab(void)
 {

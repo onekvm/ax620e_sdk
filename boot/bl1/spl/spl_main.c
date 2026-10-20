@@ -13,6 +13,12 @@
 #include "pwm.h"
 #include "riscv.h"
 #include "ax_timestamp.h"
+#ifdef AX_SPL_SD_FIRST
+#include "sd_first.h"
+#endif
+#ifdef AX_SPL_ROM_TEST
+#include "mmc.h"
+#endif
 #ifndef AX620E_SUPPORT_SD
 #include "fw_env.h"
 #endif
@@ -444,6 +450,22 @@ int main(void)
 	chip_mode = readl(TOP_CHIPMODE_GLB_SW);
 	flash_type = get_boot_mode(chip_mode);
 	setup_boot_mode(flash_type);
+#ifdef AX_SPL_ROM_TEST
+	/* Lab-only SD boot.bin: exercise the eMMC selector without flashing eMMC.
+	 * DDR parameters still come from the original eMMC package. Never use this
+	 * variant as a replacement for the normal eMMC SPL.
+	 */
+	if (!boot_mode->is_sd_boot) {
+		AX_LOG_STR_ERROR("ROM test SPL requires SD entry\r\n");
+		while (1);
+	}
+	sd_first_log("OneKVM lab SPL: SD entry, original eMMC DDR parameters\r\n");
+	mmc_emmc_rom_test_begin();
+	flash_type = FLASH_EMMC;
+	boot_mode->storage_sel = STORAGE_TYPE_EMMC;
+	boot_mode->boot_type = EMMC_BOOT_UDA;
+	boot_mode->is_sd_boot = 0;
+#endif
 	if (boot_mode->is_sd_boot)
 		flash_type = FLASH_SD;
 	WRITE_DEBUG_BOOT_TIME(DBG_READ_DDR_INIT_DATA_START); //read ddr init data start
@@ -451,6 +473,11 @@ int main(void)
 	#ifdef SUPPORT_DDRINIT_PART
 	if (flash_boot(flash_type, DDRINIT, DDRINIT_HEADER_FLASH_BASE, DDRINIT_HEADER_FLASH_BASE, DDRINIT_PARAM_HEADER_BASE) < 0) {
 		ax_print_str("get ddrinit param in rom fail\r\n");
+#ifdef AX_SPL_ROM_TEST
+		/* A test may never pass by reusing DDR data from a previous boot. */
+		AX_LOG_STR_ERROR("ROM test: cannot load original eMMC DDR parameters\r\n");
+		while (1);
+#endif
 	}
 	#endif
 #endif
@@ -460,6 +487,18 @@ int main(void)
 	WRITE_DEBUG_BOOT_TIME(DBG_DDR_INIT_END); //ddr init end
 
 	clk_aux_config();
+
+#ifdef AX_SPL_SD_FIRST
+	/* Do not intercept an explicit factory recovery/download request. */
+	if ((flash_type == FLASH_EMMC ||
+	     flash_type == FLASH_EMMC_BOOT_8BIT_50M_768K ||
+	     flash_type == FLASH_EMMC_BOOT_4BIT_25M_128K ||
+	     flash_type == FLASH_EMMC_BOOT_4BIT_25M_768K) &&
+	    !boot_mode->is_sd_boot &&
+	    !(readl(TOP_CHIPMODE_GLB_BACKUP0) &
+	      (BOOT_DOWNLOAD | BOOT_RECOVERY | BOOT_KERNEL_FAIL)))
+		sd_first_boot();
+#endif
 
 	is_boot_uboot(flash_type);
 

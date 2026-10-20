@@ -16,7 +16,8 @@ int atf_boot_prepare(unsigned long uboot_addr, unsigned long optee_addr)
 
 	atf_bl33_params.image_id = BL33_IMAGE_ID;
 #ifdef OPTEE_BOOT
-	atf_bl33_params.next_params_info = &atf_bl32_params;
+	/* Official SD firmware does not supply BL32/OP-TEE. */
+	atf_bl33_params.next_params_info = optee_addr ? &atf_bl32_params : NULL;
 #else
 	atf_bl33_params.next_params_info = NULL;
 #endif
@@ -38,3 +39,12 @@ int atf_boot_prepare(unsigned long uboot_addr, unsigned long optee_addr)
 
 	return 0;
 }
+
+#ifdef AX_SPL_SD_FIRST
+int atf_boot_prepare_el2(unsigned long uboot_addr, unsigned long optee_addr)
+{
+	atf_boot_prepare(uboot_addr, optee_addr);
+	atf_bl33_ep_info.spsr = SPSR_64(MODE_EL2, MODE_SP_ELX, DISABLE_ALL_EXCEPTIONS);
+	return 0;
+}
+#endif

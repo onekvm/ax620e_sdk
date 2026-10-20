@@ -1,4 +1,7 @@
 #include "sdhci_cdns.h"
+#ifdef AX_SPL_SD_FIRST
+#include "sd_first.h"
+#endif
 #include "cmn.h"
 #include "chip_reg.h"
 #include "timer.h"
@@ -123,6 +126,14 @@ static void sdhci_reset(void *host, u8 mask)
  *	Parameter:
  *	Return:
  */
+#ifdef AX_SPL_SD_FIRST
+void sdhci_sd_probe_stop(void)
+{
+	/* Abort outstanding SD DMA before reusing buffers for the eMMC chain. */
+	sdhci_reset((void *)(SD_MST1_BASE + SRS_BASE_OFFSET), BIT_SDHCI_RESET_ALL);
+}
+#endif
+
 int sdhci_host_init_config(void *host, CARD_TYPE card_type)
 {
 	sdhci_reset(host, BIT_SDHCI_RESET_ALL);
@@ -213,6 +224,10 @@ int sdhci_transfer_data(void *host, struct mmc_data *data)
 	mask = BIT_SDHCI_PSTATE_BUF_RD_ENABLE |
 			BIT_SDHCI_PSTATE_BUF_WR_ENABLE;
 	do {
+#ifdef AX_SPL_SD_FIRST
+		if (sd_first_probe_expired())
+			return -ETRANS_TIMEOUT;
+#endif
 		stat = sdhci_cdns_readw(host, SDHCI_NORMAL_INT_STAT_R);
 
 		// printf("%s: stat:0x%x\n",__func__, stat);
@@ -350,6 +365,10 @@ int sdhci_send_cmd(void *host, struct mmc_cmd *cmd, struct mmc_data *data)
 
 	/* check data/cmd ready */
 	while (sdhci_cdns_readl(host, SDHCI_PSTATE_REG) & mask) {
+#ifdef AX_SPL_SD_FIRST
+		if (sd_first_probe_expired())
+			return -EINHIBIT_TIMEOUT;
+#endif
 		if (time >= cmd_timeout) {
 			if (2 * cmd_timeout <= CMD_MAX_TIMEOUT) {
 				cmd_timeout += cmd_timeout;
@@ -416,6 +435,10 @@ int sdhci_send_cmd(void *host, struct mmc_cmd *cmd, struct mmc_data *data)
 	//wait cmd complete status max 1sec
 	time = 50000;
 	do {
+#ifdef AX_SPL_SD_FIRST
+		if (sd_first_probe_expired())
+			return -ECMDCOMPLETE_TIMEOUT;
+#endif
 		stat = sdhci_cdns_readw(host, SDHCI_NORMAL_INT_STAT_R);
 		if (stat & BIT_SDHCI_NORMAL_INT_ERR_INTERRUPT)
 			break;

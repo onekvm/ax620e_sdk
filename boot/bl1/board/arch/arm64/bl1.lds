@@ -21,14 +21,14 @@ SECTIONS
 	. = ALIGN(4);
 	.text :
 	{
-		*start.o
-		*(.text)
+		KEEP(*start.o(.text .text.*))
+		*(.text .text.*)
 	} > iRom
 
 	. = ALIGN(4);
 	.rodata :
 	{
-		*(.rodata)
+		*(.rodata .rodata.*)
 		*(.rodata.str1.4)
 		*(.rodata.str1.8)
 		. = ALIGN(4);
@@ -40,7 +40,7 @@ SECTIONS
 	{
 		_data_load_addr = LOADADDR(.data);
 		_data_start = . ;
-		*(.data)
+		*(.data .data.*)
 		. = ALIGN(4);
 		_data_end = . ;
 		_size_data = _data_end - _data_start;
@@ -50,7 +50,7 @@ SECTIONS
 	_bss_start = . ;
 	.bss :
 	{
-		*(.bss)
+		*(.bss .bss.* COMMON)
 		. = ALIGN(4);
 	} > iRom
 	_bss_end = . ;

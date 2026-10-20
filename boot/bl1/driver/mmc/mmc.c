@@ -9,6 +9,9 @@
 #include "timer.h"
 #include "boot.h"
 #include "printf.h"
+#ifdef AX_SPL_ROM_TEST
+#include "trace.h"
+#endif
 
 // #define WRITE_TEST
 #define true 1
@@ -32,6 +35,112 @@ static u8 current_part = 0;   /* emmc default is UDA */
 #endif
 extern u32 current_bus_width;
 extern u32 current_clock;
+#ifdef AX_SPL_ROM_TEST
+void mmc_emmc_rom_test_begin(void)
+{
+	/* ROM entered through SD, so it has not enumerated eMMC. Establish the
+	 * vendor U-Boot's 200 MHz eMMC source before its full volatile card init.
+	 */
+	writel(BIT(2), CPU_SYS_GLB_CLK_EB0_CLR);
+	udelay(2);
+	writel(GENMASK(6, 5), CPU_SYS_GLB_CLK_MUX0_CLR);
+	writel(3U << 5, CPU_SYS_GLB_CLK_MUX0_SET);
+	writel(BIT(2), CPU_SYS_GLB_CLK_EB0_SET);
+	writel(GENMASK(5, 0), CPU_SYS_GLB_CLK_DIV0_CLR);
+	writel(1, CPU_SYS_GLB_CLK_DIV0_SET);
+	writel(BIT(6), CPU_SYS_GLB_CLK_DIV0_SET);
+	udelay(2);
+	writel(BIT(6), CPU_SYS_GLB_CLK_DIV0_CLR);
+	/* Discard ROM-SD's already-working CMD mux so hardware tests also prove
+	 * that the selector establishes SD routing rather than inheriting it.
+	 */
+	writel((readl(0x104f1030) & ~GENMASK(18, 16)) | (6U << 16), 0x104f1030);
+}
+#endif
+#ifdef AX_SPL_SD_FIRST
+/* Pro SD routing: vendor AX630C pinmux plus CMD/DAT pull-ups and 3.3 V
+ * power control, also used by the OneKVM Pro device tree. Do not borrow the
+ * Desk screen's GPIO1_A11 for card detection.
+ */
+static const struct {
+	u32 address, value;
+} sd_probe_pads[] = {
+	{ 0x104f1000, 0x00000201 },
+	{ 0x104f100c, 0x00000085 },
+	{ 0x104f1018, 0x00000085 },
+	{ 0x104f1024, 0x00000005 },
+	{ 0x104f1030, 0x00000085 },
+	{ 0x104f103c, 0x00000085 },
+	{ 0x104f1048, 0x00000085 },
+	{ 0x0230200c, 0x00000003 },
+	{ 0x023020a8, 0x00000043 },
+};
+#define SD_PROBE_PAD_COUNT (sizeof(sd_probe_pads) / sizeof(sd_probe_pads[0]))
+static struct {
+	u8 high_capacity;
+	u8 sd_version;
+	u16 rca;
+	u32 bus_width;
+	u32 clock;
+	u32 sd_clock_mux, sd_clock_div, sd_clock_enabled;
+	u32 pads[SD_PROBE_PAD_COUNT];
+} emmc_probe_context;
+
+static void sd_probe_clock(u32 mux, u32 div, u32 enabled)
+{
+	/* Same SD_MST1 200 MHz source as vendor U-Boot, independent of eMMC. */
+	writel(BIT(9), FLASH_SYS_GLB_CLK_EB0_CLR);
+	udelay(2);
+	writel(GENMASK(17, 16), FLASH_SYS_GLB_CLK_MUX0_CLR);
+	writel(mux, FLASH_SYS_GLB_CLK_MUX0_SET);
+	writel(BIT(9), FLASH_SYS_GLB_CLK_EB0_SET);
+	writel(GENMASK(25, 20), FLASH_SYS_GLB_CLK_DIV0_CLR);
+	writel(div, FLASH_SYS_GLB_CLK_DIV0_SET);
+	writel(BIT(26), FLASH_SYS_GLB_CLK_DIV0_SET);
+	udelay(2);
+	writel(BIT(26), FLASH_SYS_GLB_CLK_DIV0_CLR);
+	if (!enabled)
+		writel(BIT(9), FLASH_SYS_GLB_CLK_EB0_CLR);
+}
+
+void mmc_sd_probe_begin(void)
+{
+	u32 i;
+	emmc_probe_context.high_capacity = high_capacity;
+	emmc_probe_context.sd_version = sd_version;
+	emmc_probe_context.rca = rca;
+	emmc_probe_context.bus_width = current_bus_width;
+	emmc_probe_context.clock = current_clock;
+	emmc_probe_context.sd_clock_mux = readl(FLASH_SYS_GLB_CLK_MUX0) & GENMASK(17, 16);
+	emmc_probe_context.sd_clock_div = readl(FLASH_SYS_GLB_BASE + 0xc) & GENMASK(25, 20);
+	emmc_probe_context.sd_clock_enabled = readl(FLASH_SYS_GLB_BASE + 4) & BIT(9);
+	for (i = 0; i < SD_PROBE_PAD_COUNT; ++i)
+		emmc_probe_context.pads[i] = readl(sd_probe_pads[i].address);
+	for (i = 0; i < SD_PROBE_PAD_COUNT; ++i)
+		writel(sd_probe_pads[i].value, sd_probe_pads[i].address);
+	sd_probe_clock(3U << 16, 1U << 20, BIT(9));
+	sd_card_initialized = 0;
+	sd_version = 1;
+	/* Force configuration of the SD controller, regardless of eMMC state. */
+	current_bus_width = 0;
+	current_clock = 0;
+}
+
+void mmc_sd_probe_end(void)
+{
+	u32 i;
+	sd_probe_clock(emmc_probe_context.sd_clock_mux, emmc_probe_context.sd_clock_div,
+		       emmc_probe_context.sd_clock_enabled);
+	for (i = SD_PROBE_PAD_COUNT; i > 0; --i)
+		writel(emmc_probe_context.pads[i - 1], sd_probe_pads[i - 1].address);
+	high_capacity = emmc_probe_context.high_capacity;
+	sd_version = emmc_probe_context.sd_version;
+	rca = emmc_probe_context.rca;
+	current_bus_width = emmc_probe_context.bus_width;
+	current_clock = emmc_probe_context.clock;
+	sd_card_initialized = 0;
+}
+#endif
 u32 emmc_phy_legacy_delayline = 0;//legacy mode
 u32 emmc_phy_hs_delayline = 0;    // hs mode
 u32 sd_phy_default_delayline = 0; //default mode
@@ -124,6 +233,13 @@ int emmc_read(char *dest, u32 start_addr, int size)
 	start_blk = start_addr / MMC_MAX_BLOCK_LEN;
 	blk_cnt = (size + MMC_MAX_BLOCK_LEN - 1) / MMC_MAX_BLOCK_LEN;
 	ret = mmc_read_blocks(sdhci_host, (void *)dest, start_blk, blk_cnt);
+#ifdef AX_SPL_ROM_TEST
+	if (ret < 0) {
+		AX_LOG_STR_ERROR("ROM test eMMC read error: ");
+		AX_LOG_HEX_ERROR((u32)ret);
+		AX_LOG_STR_ERROR("\r\n");
+	}
+#endif
 
 	return ret;
 }
@@ -949,9 +1065,12 @@ int emmc_init(u32 flash_type, u32 clk, u32 bus_width, u8 part)
 	u8 part_conf;
 	void *sdhci_host = (void *)(EMMC_BASE + SRS_BASE_OFFSET);
 
+	/* Only an eMMC ROM entry guarantees an already-enumerated UDA card. */
+#ifndef AX_SPL_ROM_TEST
 	if(flash_type == FLASH_EMMC) {
 		emmc_card_initialized = 1;
 	}
+#endif
 	if (!emmc_card_initialized) {
 		/* set clk source to 200M*/
 		// axera_sys_glb_clk_set(CARD_EMMC);

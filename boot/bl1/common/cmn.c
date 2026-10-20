@@ -1,33 +1,57 @@
 #include "cmn.h"
 #include "axdma_api.h"
 #include "chip_reg.h"
+
+/* MMIO may hand ordinary memory to DMA, or report that DMA has filled it.
+ * Volatile register accesses alone do not order that memory: with LTO the
+ * compiler can even remove the checksum engine's stack descriptor stores.
+ * Match the device/normal-memory ordering of the ARM readl/writel primitives.
+ */
+static inline void io_barrier(void)
+{
+#if defined(__aarch64__) || defined(__arm__)
+	__asm__ __volatile__("dmb sy" ::: "memory");
+#else
+	__asm__ __volatile__("" ::: "memory");
+#endif
+}
+
 u8 readb(unsigned long addr)
 {
-	return *(const volatile u8 *)addr;
+	u8 value = *(const volatile u8 *)addr;
+	io_barrier();
+	return value;
 }
 
 u16 readw(unsigned long addr)
 {
-	return *(const volatile u16 *)addr;
+	u16 value = *(const volatile u16 *)addr;
+	io_barrier();
+	return value;
 }
 
 u32 readl(unsigned long addr)
 {
-	return *(const volatile u32 *)addr;
+	u32 value = *(const volatile u32 *)addr;
+	io_barrier();
+	return value;
 }
 
 void writeb(u8 value, unsigned long addr)
 {
+	io_barrier();
 	*(volatile u8 *)addr = value;
 }
 
 void writew(u16 value, unsigned long addr)
 {
+	io_barrier();
 	*(volatile u16 *)addr = value;
 }
 
 void writel(u32 value, unsigned long addr)
 {
+	io_barrier();
 	*(volatile u32 *)addr = value;
 }
 

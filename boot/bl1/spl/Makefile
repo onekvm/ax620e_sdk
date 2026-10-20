@@ -40,6 +40,25 @@ OBJS += ../driver/uart/uart.o ../driver/timer/timer.o \
 
 OBJS += ../core/boot/boot.o
 
+# SD loading is independent of the SD-only SPL's DDR initialization policy.
+ifeq ($(strip $(AX_SPL_SD_FIRST)),TRUE)
+ifneq ($(strip $(FLASH_TYPE)),emmc)
+$(error AX_SPL_SD_FIRST requires the eMMC SPL)
+endif
+ifneq ($(strip $(SUPPORT_ATF)),TRUE)
+$(error AX_SPL_SD_FIRST requires ATF)
+endif
+SPL_POLICY_CPPFLAGS += -DAX_SPL_SD_FIRST
+OBJS += sd_first.o ../core/fatfs/diskio.o ../core/fatfs/ff.o
+endif
+
+ifeq ($(strip $(AX_SPL_ROM_TEST)),TRUE)
+ifneq ($(strip $(AX_SPL_SD_FIRST)),TRUE)
+$(error AX_SPL_ROM_TEST requires AX_SPL_SD_FIRST)
+endif
+SPL_POLICY_CPPFLAGS += -DAX_SPL_ROM_TEST
+endif
+
 ifeq ($(strip $(AX_SPL_SUPPORT_MODIFY_BOOTARGS)),TRUE)
 OBJS += ../core/libfdt/fdt.o
 OBJS += ../core/libfdt/fdt_rw.o
@@ -68,12 +87,16 @@ USB_INC = ../driver/usb
 DEPS := $(patsubst %.o,%.d,$(OBJS))
 
 # CPPFLAGS := -g -Wall -MMD -MP -fno-builtin
+SPL_OPTIMIZE ?= -Os
 ifeq (arm, $(ARCH))
 CPPFLAGS := -O1 -Wall -Werror -MMD -MP -fno-builtin -s -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables -fomit-frame-pointer
 else
-CPPFLAGS := -Os -Wall -Werror -MMD -MP -fno-builtin -s -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables -fomit-frame-pointer -mstrict-align
+CPPFLAGS := $(SPL_OPTIMIZE) -Wall -Werror -MMD -MP -fno-builtin -s -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables -fomit-frame-pointer -mstrict-align
 endif
 
+# BootROM's shared boot/misc structures live at physical OCM addresses below
+# 0x1000. They are valid firmware pointers, not a userspace null page.
+CPPFLAGS += -std=gnu11 -ffreestanding -fno-delete-null-pointer-checks $(SPL_POLICY_CPPFLAGS)
 CPPFLAGS +=  -I ../driver/include \
 			 -I ../board/include \
 			 -I ../common/include \

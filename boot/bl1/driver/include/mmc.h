@@ -176,11 +176,19 @@ extern u32 sd_phy_default_delayline; //default mode
 
 int emmc_init(u32 flash_type, u32 clk, u32 bus_width, u8 part);
 int sd_init(u32 clk, u32 bus_width);
+#ifdef AX_SPL_SD_FIRST
+/* Save the eMMC driver's software state while probing the other controller. */
+void mmc_sd_probe_begin(void);
+void mmc_sd_probe_end(void);
+#endif
 int emmc_read(char *dest, u32 start_addr, int size);
 int sd_read(char *dest, u32 start_addr, int size);
 int mmc_read_blocks(void *host, void *dst, u32 start, u32 blkcnt);
 void emmc_reset(void);
 void emmc_pins_config(void);
+#ifdef AX_SPL_ROM_TEST
+void mmc_emmc_rom_test_begin(void);
+#endif
 int emmc_boot_init(u32 flash_type, u32 clk, u32 bus_width, u32 read_cnt);
 void axera_sys_glb_clk_set(CARD_TYPE card_type);
 #endif
