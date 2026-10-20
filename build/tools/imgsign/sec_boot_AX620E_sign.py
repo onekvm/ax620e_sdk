@@ -138,10 +138,10 @@ def make_image(input_file, pub_file, prv_file, output_file, capability, key_bit)
         return False
 
     # load in file data
-    in_size = os.path.getsize(in_file)
+    in_size = os.path.getsize(input_file)
 
     try:
-        with open(in_file, 'rb') as f:
+        with open(input_file, 'rb') as f:
             file_data = f.read()
     except:
         print('[error] load image file failed\n')
@@ -237,7 +237,7 @@ def make_image(input_file, pub_file, prv_file, output_file, capability, key_bit)
     copy_data_by_bytes(file_data, packed_data, in_size, header_size*1)
     # save data to out file
     try:
-        with open(out_file, 'wb') as f:
+        with open(output_file, 'wb') as f:
             f.write(packed_data)
     except:
         print('[error] create spl file failed\n')
