@@ -88,11 +88,7 @@ stores before the DMA trigger, as well as the barriers around device completion.
 Use the adjacent OneKVM distro repository, not a standalone SDK toolchain:
 
 ```sh
-ONEKVM_MACHINE=onekvm-nanokvm-pro \
-ONEKVM_DEBUG_WORKTREES=ax620e_sdk \
-KAS_BUILD_DIR=/work/build-pro-spl \
-./scripts/kas.sh shell kas/nanokvm-pro-kernel.yml \
-  -c 'bitbake -c deploy ax620e-spl ax620e-uboot'
+make ONEKVM_MACHINE=onekvm-nanokvm-pro build image sd
 ```
 
 The SPL recipe builds independent `baseline`, `sd-first` and `rom-test`
@@ -104,7 +100,13 @@ Each 128 KiB signed SPL package has a 1 KiB header and EIP firmware at `0xcc00`:
 overwrite EIP firmware. Deployment checks this boundary and the end of OCM BSS.
 Unsigned payloads, ELF/maps and manifests are deployed under `ax620e-spl/`;
 the isolated U-Boot and its configuration are under `ax620e-uboot/`.
-These normal deploy outputs are not directly flashable signed firmware.
+These component deploy outputs are not directly flashable signed firmware.
+The image depends on `onekvm-nanokvm-pro-sd-firmware`, which also builds
+`ax620e-atf` and runs `tools/package-sd-firmware.py` inside OE. It verifies the
+component manifests, signs the ROM-SD SPL, compresses and signs SD U-Boot and
+BL31, adds the U-Boot EL2 tag, and verifies signatures and loader bounds.
+The resulting `onekvm-pro-sd-firmware/firmware.json` records source revisions,
+sizes and hashes beside `boot.bin`, `uboot.bin` and `atf.img`.
 
 The optional `bitbake -c test_package ax620e-spl` task runs **inside OE** after
 both firmware deploy checks. It requires explicit `AX620E_TEST_SIGNING=1`, an
@@ -130,5 +132,8 @@ loader bounds, stuck hardware polls, and MMC clock/pad restoration with mocked
 hardware. Hardware acceptance must cover cold boot, warm reboot, missing or
 corrupt SD firmware, factory EL1 fallback, and OneKVM EL2 with both KVM vCPUs.
 
-The SD root image does not include the test-signed bootloader packages. Firmware
-installation requires a board-specific backup and ROM recovery path.
+The complete SD image includes all three source-built boot packages in FAT;
+no previous image or external firmware archive is needed. Its ROM-SD `boot.bin`
+still reads the factory eMMC DDR parameter package. Enabling SD priority on a
+factory system is a separate primary eMMC SPL update and requires a
+board-specific backup and ROM recovery path.
