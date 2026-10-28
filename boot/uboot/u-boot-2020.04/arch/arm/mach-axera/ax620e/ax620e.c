@@ -647,7 +647,18 @@ int board_late_init(void)
 	wdt0_enable(0);
 	set_ephy_led_pol();
 	env_set("initrd_high", "ffffffffffffffff");
-	env_set("bootcmd", "onekvm_sd_boot");
+	/*
+	 * SD-first SPL sets is_sd_boot before entering this U-Boot at EL2.
+	 * Factory eMMC SPL leaves it clear and enters at EL1. The same binary
+	 * stays at the entry exception level and only changes the boot device.
+	 */
+	{
+		const char *bootcmd = boot_info_data.is_sd_boot ?
+			"onekvm_sd_boot" : "onekvm_emmc_boot";
+
+		env_set("bootcmd", bootcmd);
+		printf("OneKVM: %s\n", bootcmd);
+	}
 	{
 		struct udevice *panel;
 		int ret = uclass_first_device_err(UCLASS_PANEL_SPI, &panel);
