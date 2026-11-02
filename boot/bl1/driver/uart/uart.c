@@ -171,6 +171,12 @@ void uart_init(int base)
 	u32 baud = (UART_BASE_CLK + UART_BAUDATE/2) / 16 / UART_BAUDATE;
 	u32 temp = 0;
 
+#ifdef AX_SPL_NANOKVM_GO
+	/* AX620QF Nanoagent pin table: function 0 is UART3. */
+	writel(0x83, 0x02304084);
+	writel(0x83, 0x02304090);
+#endif
+
 	/* uart0/1 pin config */
 	if (base == UART0_BASE) {
 		writel(0x83, PIN_MUX_G6_UART0_TXD);

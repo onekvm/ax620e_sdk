@@ -22,5 +22,13 @@ config ONEKVM_SD_BOOT
 	  retain EL2, and keep all environment changes in RAM. This option is
 	  disabled in vendor eMMC configurations.
 
+config ONEKVM_GO_BOOT
+	bool "OneKVM NanoKVM Go ARM64 SD boot image"
+	depends on ARM64 && ENV_IS_NOWHERE && !ENV_IS_IN_MMC
+	depends on !ONEKVM_SD_BOOT
+	help
+	  SD-only boot on the 256 MiB AX620QF. Keep UART3 and the watchdog
+	  active, validate capsule bounds, and leave the environment in RAM.
+
 
 endif

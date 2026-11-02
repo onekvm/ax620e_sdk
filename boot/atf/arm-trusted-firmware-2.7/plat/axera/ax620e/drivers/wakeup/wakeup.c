@@ -13,7 +13,7 @@ void wakeup_sys(void)
 	writel(AX_WAKEUP_STAGE_16, SLEEP_STAGE_STORE_ADDR);
 	peri_sys_wakeup();
 	writel(AX_WAKEUP_STAGE_17, SLEEP_STAGE_STORE_ADDR);
-	console_16550_register(UART0_BASE, AX620E_UART_CLOCK, AX620E_BAUDRATE, &console);
+	console_16550_register(AX620E_CONSOLE_BASE, AX620E_UART_CLOCK, AX620E_BAUDRATE, &console);
 	flash_sys_wakeup();
 	writel(AX_WAKEUP_STAGE_18, SLEEP_STAGE_STORE_ADDR);
 	isp_sys_wakeup();

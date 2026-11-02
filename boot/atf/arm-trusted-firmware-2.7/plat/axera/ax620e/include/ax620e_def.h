@@ -7,6 +7,12 @@
 #define UART0_BASE		0x04880000
 #define UART0_SIZE		SIZE_K(1)
 
+#ifdef ONEKVM_NANOKVM_GO
+#define AX620E_CONSOLE_BASE      0x06080000
+#else
+#define AX620E_CONSOLE_BASE      UART0_BASE
+#endif
+
 #define PMU_BASE		0x02100000
 #define PMU_SIZE		SIZE_M(1)
 
@@ -63,7 +69,11 @@
 #define MM_SYS_BASE		0x04400000
 #define MM_SYS_SIZE		SIZE_M(4)
 
+#ifdef ONEKVM_NANOKVM_GO
+#define RUN_ON_DDR_BASE          0x40000000
+#else
 #define RUN_ON_DDR_BASE		ATF_IMG_ADDR
+#endif
 #define RUN_ON_DDR_SIZE		SIZE_M(256)
 
 #define PERIPH_SYS_BASE		0x04800000

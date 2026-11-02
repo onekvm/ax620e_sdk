@@ -10,7 +10,9 @@
 #include <configs/ax620e_common.h>
 
 #define COUNTER_FREQUENCY    24000000
-#ifdef CONFIG_ONEKVM_SD_BOOT
+#ifdef CONFIG_ONEKVM_GO_BOOT
+#define MEM_REGION_DDR_SIZE (0x10000000UL)
+#elif defined(CONFIG_ONEKVM_SD_BOOT)
 #define MEM_REGION_DDR_SIZE (0x40000000UL)
 #else
 #define MEM_REGION_DDR_SIZE (0x100000000UL)
@@ -23,7 +25,9 @@
 
 #define CONFIG_SYS_MALLOC_LEN		(64 << 20)	//64M
 
-#ifdef CONFIG_ONEKVM_SD_BOOT
+#ifdef CONFIG_ONEKVM_GO_BOOT
+#define SDRAM_BANK_SIZE                  (0x10000000UL)
+#elif defined(CONFIG_ONEKVM_SD_BOOT)
 #define SDRAM_BANK_SIZE			(1UL << 30)
 #else
 #define SDRAM_BANK_SIZE			(2UL << 30)

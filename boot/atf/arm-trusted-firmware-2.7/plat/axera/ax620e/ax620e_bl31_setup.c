@@ -107,7 +107,7 @@ void __init ax620e_bl31_early_platform_setup(void *from_bl2, uintptr_t soc_fw_co
 				uintptr_t hw_config, void *plat_params_from_bl2)
 {
 	/* Initialize the console to provide early debug support */
-	console_16550_register(UART0_BASE, AX620E_UART_CLOCK,
+	console_16550_register(AX620E_CONSOLE_BASE, AX620E_UART_CLOCK,
 			       AX620E_BAUDRATE, &console);
 
 #if RESET_TO_BL31

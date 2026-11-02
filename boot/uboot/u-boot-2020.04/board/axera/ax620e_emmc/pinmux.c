@@ -110,10 +110,11 @@ int pinmux_init(void)
 	u32 val;
 
 	misc_info_t *info = (misc_info_t *)MISC_INFO_ADDR;
-	if ((info->chip_type == 0x8 && info->board_id == 0x3 &&
+	if (!IS_ENABLED(CONFIG_ONEKVM_GO_BOOT) &&
+	    ((info->chip_type == 0x8 && info->board_id == 0x3 &&
 	     info->phy_board_id == 0x3) ||
 	    (info->chip_type == 0x9 && info->board_id == 0x1 &&
-	     info->phy_board_id == 0x1)) {
+	     info->phy_board_id == 0x1))) {
 		timer_init();
 
 		val = readl(0x0480100C);

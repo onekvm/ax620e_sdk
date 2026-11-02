@@ -29,6 +29,7 @@ obj-$(CONFIG_CMD_AXERA_BOOT) += boot/axera_boot.o
 # sd update
 obj-$(CONFIG_CMD_AXERA_SDUPDATE) += sd_update/sd_update.o
 obj-$(CONFIG_CMD_AXERA_SDBOOT) += sd_boot/sd_boot.o
+obj-$(CONFIG_ONEKVM_GO_BOOT) += sd_boot/onekvm_go.o
 obj-$(CONFIG_CMD_AXERA_TFTP_OTA) += tftp_update/axera_ota.o
 obj-$(CONFIG_CMD_AXERA_UPDATE) += update/axera_update.o
 obj-y += setup_boot/setup_boot.o

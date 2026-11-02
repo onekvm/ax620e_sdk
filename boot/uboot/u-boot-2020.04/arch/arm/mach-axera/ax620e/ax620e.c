@@ -640,6 +640,11 @@ static void config_uboot_autoboot_key_from_boot(void)
 // ### SIPEED EDIT END ###
 int board_late_init(void)
 {
+#ifdef CONFIG_ONEKVM_GO_BOOT
+	/* No factory environment, A/B, upgrade or logo side effects. */
+	extern int onekvm_go_board_init(void);
+	return onekvm_go_board_init();
+#endif
 #ifdef CONFIG_ONEKVM_SD_BOOT
 	/* Do not enter vendor A/B/env bookkeeping or import factory OS arguments. */
 	print_board_info();

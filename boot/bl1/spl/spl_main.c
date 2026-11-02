@@ -13,6 +13,9 @@
 #include "pwm.h"
 #include "riscv.h"
 #include "ax_timestamp.h"
+#ifdef AX_SPL_NANOKVM_GO
+#include "nanokvm_go.h"
+#endif
 #ifdef AX_SPL_SD_FIRST
 #include "sd_first.h"
 #endif
@@ -429,6 +432,9 @@ int main(void)
 	boot_mode_info_t *boot_mode = (boot_mode_info_t *) BOOT_MODE_INFO_ADDR;
 
 	timer_init();
+#ifdef AX_SPL_NANOKVM_GO
+	nanokvm_go_boot_watchdog();
+#endif
 	get_misc_info();
 	chip_init();
 	generic_timer_init();

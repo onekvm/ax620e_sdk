@@ -217,6 +217,10 @@ ifeq (arm64, $(ARCH))
 CPPFLAGS += -DCONFIG_ARM64
 endif
 
+ifeq ($(AX_SPL_NANOKVM_GO),TRUE)
+CPPFLAGS += -DAX_SPL_NANOKVM_GO
+endif
+
 all: $(IMAGE)
 $(IMAGE): $(OBJS)
 	$(LD) $(LDFLAGS) $(OBJS) -o $@ -L $(shell dirname `$(CC) $(c_flags) -print-libgcc-file-name`) -lgcc

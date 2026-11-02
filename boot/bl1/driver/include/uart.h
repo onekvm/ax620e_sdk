@@ -6,7 +6,12 @@
 #define UART1_BASE		0x4881000
 #define UART2_BASE		0x4882000
 
+#ifdef AX_SPL_NANOKVM_GO
+#define UART3_BASE              0x06080000
+#define USE_UART                UART3_BASE
+#else
 #define USE_UART		UART0_BASE
+#endif
 
 #ifndef HAPS_DEBUG
 #define UART_BAUDATE      115200

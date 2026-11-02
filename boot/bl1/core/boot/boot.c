@@ -807,6 +807,15 @@ int read_image_data(u32 flash_type, struct img_header *boot_header, struct boot_
 {
 	if (!boot_header || !img_info)
 		return -1;
+#ifdef AX_SPL_NANOKVM_GO
+	/* This SD-only SPL accepts raw BL31 and BL33 in disjoint DDR windows. */
+	if (flash_type != FLASH_SD || !boot_header->img_size ||
+	    (boot_header->img_size & 3) ||
+	    (img_info->img_type != UBOOT && img_info->img_type != ATF) ||
+	    boot_header->img_size > (img_info->img_type == UBOOT ?
+				    2 * 1024 * 1024 : 256 * 1024))
+		return -1;
+#endif
 	int ret = 0;
 	u32 cksum = 0;
 	u32 flash_addr = img_info->boot_flash_addr;
