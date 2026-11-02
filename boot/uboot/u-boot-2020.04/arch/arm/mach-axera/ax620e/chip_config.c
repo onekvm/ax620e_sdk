@@ -36,7 +36,10 @@ int chip_init(enum platform_type type)
 {
 	generic_timer_init();
 	//pmu_init();
+	/* Go must retain the SPL watchdog across pre-relocation failures. */
+#ifndef CONFIG_ONEKVM_GO_BOOT
 	wdt0_enable(0);
+#endif
 	store_chip_type();
 #ifndef CONFIG_AXERA_ENV_BOARD_ID
 	/* pinmux init */

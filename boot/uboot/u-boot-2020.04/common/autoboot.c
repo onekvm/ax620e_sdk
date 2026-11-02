@@ -301,7 +301,8 @@ static int abortboot(int bootdelay)
 	if (IS_ENABLED(CONFIG_SILENT_CONSOLE) && abort)
 		gd->flags &= ~GD_FLG_SILENT;
 
-	if(abort)
+	/* Keep Go recoverable even when UART input interrupts autoboot. */
+	if (abort && !IS_ENABLED(CONFIG_ONEKVM_GO_BOOT))
 		wdt0_enable(0);
 	return abort;
 }

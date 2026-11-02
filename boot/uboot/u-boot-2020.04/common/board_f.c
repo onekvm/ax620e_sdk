@@ -48,6 +48,9 @@
 #endif
 #include <asm/io.h>
 #include <asm/sections.h>
+#ifdef CONFIG_ONEKVM_GO_BOOT
+#include <asm/arch-axera/go_reloc.h>
+#endif
 #include <dm/root.h>
 #include <linux/errno.h>
 
@@ -457,7 +460,13 @@ static int reserve_uboot(void)
 		 * round down to next 4 kB limit
 		 */
 		gd->relocaddr -= gd->mon_len;
+	#ifdef CONFIG_ONEKVM_GO_BOOT
+		/* The signed Go payload starts 1 KiB into its load page. */
+		gd->relocaddr = go_align_relocaddr(gd->relocaddr,
+						CONFIG_SYS_TEXT_BASE);
+	#else
 		gd->relocaddr &= ~(4096 - 1);
+	#endif
 	#if defined(CONFIG_E500) || defined(CONFIG_MIPS)
 		/* round down to next 64 kB limit so that IVPR stays aligned */
 		gd->relocaddr &= ~(65536 - 1);
