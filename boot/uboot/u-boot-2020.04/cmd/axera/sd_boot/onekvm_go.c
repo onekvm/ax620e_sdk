@@ -12,6 +12,7 @@
 #include <linux/sizes.h>
 #include "../secureboot/secureboot.h"
 #include "../gzipd/ax_gzipd_api.h"
+#include "go_gzip_layout.h"
 
 #define GO_KERNEL       0x40200000UL
 #define GO_KERNEL_END   0x43000000UL
@@ -122,10 +123,8 @@ static int go_inflate(ulong source, u32 size, ulong destination, ulong end, u32 
 		return -1;
 	first = source + sizeof(info);
 	/* The vendor helper's count==0 last-size calculation wraps. */
-	final = first + (count ? count - 1 : 0) * tile;
-	last = source + info.isize - final;
-	if (count > 16 || final < first || final >= source + info.isize ||
-	    !last || last > tile)
+	if (go_gzip_last_range(first, info.isize - sizeof(info), tile, count,
+			       &final, &last))
 		return -1;
 	if ((count && gzipd_dev_run((void *)first, (void *)final, &queued)) ||
 	    gzipd_dev_run_last_tile((void *)final, last) ||
