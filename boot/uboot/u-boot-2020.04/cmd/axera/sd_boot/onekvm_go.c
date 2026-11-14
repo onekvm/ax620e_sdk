@@ -38,6 +38,7 @@
 #define GO_PROGRESS_LINUX  4	/* images checked, starting Linux */
 
 int panel_spi_onekvm_progress(unsigned int percent);
+void panel_spi_onekvm_fdt_fixup(void *blob);
 
 static void go_watchdog_arm(void)
 {
@@ -265,6 +266,23 @@ static void go_fixup_memory(void)
 	puts("OneKVM Go: NanoKVM Go+, 512 MiB\n");
 }
 
+/*
+ * Let Linux keep the logo and boot bar: a panel driver that knows
+ * onekvm,boot-logo skips the reset that blanks them until the first frame.
+ * Other kernels ignore the property; a failed fixup only means that reset.
+ */
+static void go_fixup_panel(void)
+{
+	void *dtb = (void *)GO_DTB;
+
+	/* Room for one property; go_load_images() left 64 KiB in the window. */
+	if (fdt_open_into(dtb, dtb, fdt_totalsize(dtb) + SZ_1K)) {
+		puts("OneKVM Go: Linux will reset the panel\n");
+		return;
+	}
+	panel_spi_onekvm_fdt_fixup(dtb);
+}
+
 static int do_onekvm_go_boot(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[])
 {
 	char command[80], args[CONFIG_SYS_CBSIZE], slot = 'A';
@@ -295,6 +313,7 @@ static int do_onekvm_go_boot(cmd_tbl_t *cmdtp, int flag, int argc, char *const a
 		printf("OneKVM Go: booting slot %c\n", slot);
 	}
 	go_fixup_memory();
+	go_fixup_panel();
 	go_progress(GO_PROGRESS_LINUX);
 	snprintf(command, sizeof(command), "booti %lx - %lx", GO_KERNEL, GO_DTB);
 	return run_command(command, 0);

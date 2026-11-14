@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <fs.h>
 #include <hexdump.h>
+#include <linux/libfdt.h>
 #include <malloc.h>
 #include <spi.h>
 
@@ -22,6 +23,7 @@
 #include "bootlogo/onekvm_logo.h"
 #define ONEKVM_LOGO_RUNS onekvm_logo_runs
 #define ONEKVM_LOGO_PANEL "JD9853 172x320"
+#define ONEKVM_LOGO_COMPATIBLE "jadard,jd9853"
 /* 320x172 canvas; 172 visible columns from 0x22 on a 240-column controller. */
 #define ONEKVM_PANEL_ROW(x) (319 - (x))
 #define ONEKVM_PANEL_COLUMN(y) (0x22 + (y))
@@ -32,6 +34,7 @@
 #include "bootlogo/onekvm_go_logo.h"
 #define ONEKVM_LOGO_RUNS onekvm_go_logo_runs
 #define ONEKVM_LOGO_PANEL "ST7789P3 240x284"
+#define ONEKVM_LOGO_COMPATIBLE "sitronix,st7789p3"
 /* 284x240 canvas, 90 degrees from the panel; power-on window 240x320. */
 #define ONEKVM_PANEL_ROW(x) (x)
 #define ONEKVM_PANEL_COLUMN(y) (239 - (y))
@@ -493,6 +496,23 @@ release:
   spi_release_bus(slave);
   return ret;
 }
+
+#ifdef ONEKVM_LOGO_RUNS
+/*
+ * Mark the Linux panel node so its driver keeps this logo: resetting the
+ * panel blanks it until Linux draws. `blob` needs room for one property.
+ */
+void panel_spi_onekvm_fdt_fixup(void *blob)
+{
+	int node;
+
+	if (!onekvm_logo_ready)
+		return;
+	node = fdt_node_offset_by_compatible(blob, -1, ONEKVM_LOGO_COMPATIBLE);
+	if (node < 0 || fdt_setprop_empty(blob, node, "onekvm,boot-logo"))
+		puts("OneKVM: Linux will reset the panel\n");
+}
+#endif
 
 #ifdef ONEKVM_BAR_WIDTH
 /* Same bar as Linux onekvm-boot-splash: rounded ends on the outer rows. */
