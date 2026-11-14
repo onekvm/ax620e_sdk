@@ -3,6 +3,7 @@
 #include <asm/arch/boot_mode.h>
 #include <common.h>
 #include <dm.h>
+#include <env.h>
 #include <errno.h>
 #include <fs.h>
 #include <hexdump.h>
@@ -463,6 +464,129 @@ release:
   spi_release_bus(slave);
   return ret;
 }
+
+#if defined(CONFIG_ONEKVM_SD_BOOT)
+/*
+ * The JD9853 shows panel RAM columns 0x22-0xcd and rows 0-319. A logical
+ * (x, y) on the 320x172 canvas is native row 319 - x, column y.
+ */
+#define ONEKVM_PANEL_COLUMN 0x22
+#define ONEKVM_PANEL_ROWS 320
+
+/* Same bar as Linux onekvm-boot-splash: rounded ends on the outer rows. */
+static u16 onekvm_bar_pixel(unsigned int x, unsigned int y, unsigned int fill)
+{
+	unsigned int inset = (y == 0 || y == ONEKVM_BAR_HEIGHT - 1) ? 2 : 0;
+
+	if (x >= inset && x + inset < fill)
+		return ONEKVM_BAR_FILL;
+	if (x >= inset && x + inset < ONEKVM_BAR_WIDTH)
+		return ONEKVM_BAR_TRACK;
+	return ONEKVM_BAR_BACKGROUND;
+}
+
+static int onekvm_panel_write(struct spi_slave *slave,
+			      struct panel_spi_device *panel, u8 cmd,
+			      const u8 *data, unsigned int len)
+{
+	int ret;
+
+	if (!lcd_command(panel))
+		return -EIO;
+	ret = spi_xfer(slave, 8, &cmd, NULL, SPI_XFER_ONCE);
+	if (ret)
+		return ret;
+	if (!lcd_data(panel))
+		return -EIO;
+	return len ? spi_xfer(slave, len * 8, data, NULL, SPI_XFER_ONCE) : 0;
+}
+
+static int onekvm_panel_window(struct spi_slave *slave,
+			       struct panel_spi_device *panel,
+			       unsigned int column, unsigned int columns,
+			       unsigned int row, unsigned int rows)
+{
+	u8 caset[4], raset[4];
+	int ret;
+
+	column += ONEKVM_PANEL_COLUMN;
+	caset[0] = column >> 8;
+	caset[1] = column;
+	caset[2] = (column + columns - 1) >> 8;
+	caset[3] = column + columns - 1;
+	raset[0] = row >> 8;
+	raset[1] = row;
+	raset[2] = (row + rows - 1) >> 8;
+	raset[3] = row + rows - 1;
+	ret = onekvm_panel_write(slave, panel, 0x2a, caset, sizeof(caset));
+	return ret ? ret : onekvm_panel_write(slave, panel, 0x2b, raset, sizeof(raset));
+}
+
+/* Redraw the boot bar under the logo with `percent` filled. */
+static int onekvm_show_progress(unsigned int percent)
+{
+	u8 pixels[ONEKVM_BAR_WIDTH * ONEKVM_BAR_HEIGHT * 2];
+	unsigned int fill = ONEKVM_BAR_WIDTH * percent / 100;
+	unsigned int first = ONEKVM_PANEL_ROWS - ONEKVM_BAR_X - ONEKVM_BAR_WIDTH;
+	unsigned int row, y, used = 0;
+	struct panel_spi_device *panel;
+	struct spi_slave *slave;
+	struct udevice *dev;
+	int ret;
+
+	for (row = first; row < first + ONEKVM_BAR_WIDTH; row++) {
+		unsigned int x = ONEKVM_PANEL_ROWS - 1 - ONEKVM_BAR_X - row;
+
+		for (y = 0; y < ONEKVM_BAR_HEIGHT; y++) {
+			u16 color = onekvm_bar_pixel(x, y, fill);
+
+			pixels[used++] = color >> 8;
+			pixels[used++] = color;
+		}
+	}
+	ret = uclass_first_device_err(UCLASS_PANEL_SPI, &dev);
+	if (ret)
+		return ret;
+	slave = dev_get_parent_priv(dev);
+	panel = dev_get_uclass_priv(dev);
+	ret = spi_claim_bus(slave);
+	if (ret)
+		return ret;
+	ret = onekvm_panel_window(slave, panel, ONEKVM_BAR_Y, ONEKVM_BAR_HEIGHT,
+				  first, ONEKVM_BAR_WIDTH);
+	if (!ret)
+		ret = onekvm_panel_write(slave, panel, 0x2c, pixels, used);
+	/* Leave the full-panel window that Linux expects. */
+	if (!ret)
+		ret = onekvm_panel_window(slave, panel, 0, 172, 0, ONEKVM_PANEL_ROWS);
+	spi_release_bus(slave);
+	return ret;
+}
+
+/*
+ * Boot scripts set onekvm_progress=PERCENT. A U-Boot without this callback
+ * just keeps the variable, so the same script still boots; scripts must not
+ * call a command that only this U-Boot has.
+ */
+static int on_onekvm_progress(const char *name, const char *value,
+			      enum env_op op, int flags)
+{
+	unsigned long percent;
+	char *end;
+	int ret;
+
+	if (op == env_op_delete || !value)
+		return 0;
+	percent = simple_strtoul(value, &end, 10);
+	if (end == value || *end || percent > 100)
+		return 0;
+	ret = onekvm_show_progress(percent);
+	if (ret)
+		printf("OneKVM: boot bar not drawn (%d)\n", ret);
+	return 0;
+}
+U_BOOT_ENV_CALLBACK(onekvm_progress, on_onekvm_progress);
+#endif
 
 int panel_spi_show_recovery_logo(void)
 {

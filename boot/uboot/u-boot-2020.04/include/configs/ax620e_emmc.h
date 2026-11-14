@@ -16,6 +16,11 @@
 #define MEM_REGION_DDR_SIZE (0x100000000UL)
 #endif
 
+#ifdef CONFIG_ONEKVM_SD_BOOT
+/* Boot scripts fill the panel boot bar by setting this variable. */
+#define CONFIG_ENV_CALLBACK_LIST_STATIC "onekvm_progress:onekvm_progress,"
+#endif
+
 /* boot-logo related buffer address */
 #define LOGO_IMAGE_LOAD_ADDR 0x70000000U
 #define LOGO_SHOW_BUFFER 0x71000000U
