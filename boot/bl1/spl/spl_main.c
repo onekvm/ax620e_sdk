@@ -486,6 +486,12 @@ int main(void)
 	uart_init(USE_UART);
 	info("\r\nenter spl\r\n");
 	go_ram_mark("uart init\r\n");
+#ifdef AX_SPL_NANOKVM_GO
+	{
+		/* One line so the serial console shows that the OneKVM SPL booted. */
+		AX_LOG_STR_ERROR("\r\nNanoKVM Go - OneKVM SPL\r\n");
+	}
+#endif
 
 	set_pwm_volt();
 
