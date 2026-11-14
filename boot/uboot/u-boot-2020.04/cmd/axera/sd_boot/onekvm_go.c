@@ -8,10 +8,12 @@
 #include <asm/io.h>
 #include <asm/unaligned.h>
 #include <linux/delay.h>
+#include <linux/errno.h>
 #include <linux/libfdt.h>
 #include <linux/sizes.h>
 #include "../secureboot/secureboot.h"
 #include "../gzipd/ax_gzipd_api.h"
+#include "go_boot_slot.h"
 #include "go_gzip_layout.h"
 
 #define GO_KERNEL       0x40200000UL
@@ -136,27 +138,25 @@ static int go_inflate(ulong source, u32 size, ulong destination, ulong end, u32 
 	return 0;
 }
 
-static int do_onekvm_go_boot(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[])
+/* Load, inflate and check one kernel/DTB pair; nothing is booted yet. */
+static int go_load_images(const char *kernel_name, const char *dtb_name)
 {
 	u32 kernel_size, dtb_size, raw_kernel, raw_dtb;
 	u64 text_offset, image_size, image_flags;
-	char command[80];
 	void *kernel = (void *)GO_KERNEL, *dtb = (void *)GO_DTB;
 
-	go_watchdog_arm();
-	if (run_command("mmc dev 1", 0) || run_command("mmc rescan", 0) ||
-	    go_load_capsule("kernel.img", GO_KERNEL_ZIP, GO_KERNEL_ZEND, &kernel_size) ||
-	    go_load_capsule("dtb.img", GO_DTB_ZIP, GO_DTB_ZEND, &dtb_size) ||
+	if (go_load_capsule(kernel_name, GO_KERNEL_ZIP, GO_KERNEL_ZEND, &kernel_size) ||
+	    go_load_capsule(dtb_name, GO_DTB_ZIP, GO_DTB_ZEND, &dtb_size) ||
 	    go_inflate(GO_KERNEL_ZIP + SECBOOT_HEADER_SIZE, kernel_size,
 		       GO_KERNEL, GO_KERNEL_END, &raw_kernel) ||
 	    go_inflate(GO_DTB_ZIP + SECBOOT_HEADER_SIZE, dtb_size,
 		       GO_DTB, GO_DTB_END, &raw_dtb))
-		goto failed;
+		return -1;
 	if (raw_kernel < 64 || get_unaligned_le32(kernel + 56) != 0x644d5241 ||
 	    raw_dtb < 40 || fdt_check_header(dtb) || fdt_totalsize(dtb) > raw_dtb ||
 	    raw_dtb > GO_DTB_END - GO_DTB - SZ_64K ||
 	    fdt_node_check_compatible(dtb, 0, "sipeed,nanokvm-go"))
-		goto failed;
+		return -1;
 	text_offset = get_unaligned_le64(kernel + 8);
 	image_size = get_unaligned_le64(kernel + 16);
 	image_flags = get_unaligned_le64(kernel + 24);
@@ -164,7 +164,75 @@ static int do_onekvm_go_boot(cmd_tbl_t *cmdtp, int flag, int argc, char *const a
 	if (!(image_flags & BIT(3)) || text_offset > GO_KERNEL ||
 	    ((GO_KERNEL - text_offset) & (SZ_2M - 1)) ||
 	    image_size < raw_kernel || image_size > GO_KERNEL_END - GO_KERNEL)
+		return -1;
+	return 0;
+}
+
+/* 0 with *slot set, -ENOENT without the file, -EINVAL for any other content. */
+static int go_read_boot_slot(char *slot)
+{
+	ALLOC_CACHE_ALIGN_BUFFER(char, data, ARCH_DMA_MINALIGN);
+	loff_t length, actual;
+
+	if (fs_set_blk_dev("mmc", "1:1", FS_TYPE_FAT) ||
+	    fs_size(GO_BOOT_SLOT_FILE, &length))
+		return -ENOENT;
+	if (length < 1 || length > 2 ||
+	    fs_set_blk_dev("mmc", "1:1", FS_TYPE_FAT) ||
+	    fs_read(GO_BOOT_SLOT_FILE, (ulong)data, 0, length, &actual) ||
+	    actual != length || go_parse_boot_slot(data, length, slot))
+		return -EINVAL;
+	return 0;
+}
+
+/* Load *slot's kernel/DTB pair, else the other slot's; *slot names the result. */
+static int go_load_slot(char *slot)
+{
+	char kernel_name[16], dtb_name[16];
+	int attempt;
+
+	for (attempt = 0; attempt < 2; ++attempt) {
+		const char lower = *slot - 'A' + 'a';
+
+		snprintf(kernel_name, sizeof(kernel_name), "kernel-%c.img", lower);
+		snprintf(dtb_name, sizeof(dtb_name), "dtb-%c.img", lower);
+		if (!go_load_images(kernel_name, dtb_name))
+			return 0;
+		printf("OneKVM Go: slot %c boot images invalid or unavailable\n", *slot);
+		*slot = go_other_slot(*slot);
+	}
+	return -1;
+}
+
+static int do_onekvm_go_boot(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[])
+{
+	char command[80], args[CONFIG_SYS_CBSIZE], slot = 'A';
+	const char *bootargs;
+	int status, length;
+
+	go_watchdog_arm();
+	if (run_command("mmc dev 1", 0) || run_command("mmc rescan", 0))
 		goto failed;
+	status = go_read_boot_slot(&slot);
+	if (status == -ENOENT) {
+		/* Without boot-slot keep the single-root kernel.img/dtb.img layout. */
+		if (go_load_images("kernel.img", "dtb.img"))
+			goto failed;
+	} else {
+		if (status) {
+			puts("OneKVM Go: invalid boot-slot; trying slot A first\n");
+			slot = 'A';
+		}
+		if (go_load_slot(&slot))
+			goto failed;
+		/* The initramfs mounts this slot's root; RAUC reads the same value. */
+		bootargs = env_get("bootargs");
+		length = snprintf(args, sizeof(args), "%s rauc.slot=%c",
+				  bootargs ? bootargs : "", slot);
+		if (length < 0 || length >= (int)sizeof(args) || env_set("bootargs", args))
+			goto failed;
+		printf("OneKVM Go: booting slot %c\n", slot);
+	}
 	snprintf(command, sizeof(command), "booti %lx - %lx", GO_KERNEL, GO_DTB);
 	return run_command(command, 0);
 failed:
@@ -173,4 +241,4 @@ failed:
 }
 
 U_BOOT_CMD(onekvm_go_boot, 1, 0, do_onekvm_go_boot,
-	   "boot NanoKVM Go ARM64 from SD FAT", "");
+	   "boot NanoKVM Go ARM64 from SD FAT, slot from boot-slot", "");
