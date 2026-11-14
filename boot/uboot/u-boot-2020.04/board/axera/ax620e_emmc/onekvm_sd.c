@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0+
 #include <common.h>
 #include <command.h>
+#include <fdt_support.h>
 #include <image.h>
 
 #define ONEKVM_SCRIPT_ADDR 0x48000000UL
@@ -36,3 +37,13 @@ static int do_onekvm_sd_boot(cmd_tbl_t *cmdtp, int flag, int argc,
 
 U_BOOT_CMD(onekvm_sd_boot, 1, 0, do_onekvm_sd_boot,
 	   "boot the OneKVM SD script", "");
+
+#ifdef CONFIG_OF_BOARD_SETUP
+void panel_spi_onekvm_fdt_fixup(void *blob);
+
+int ft_board_setup(void *blob, bd_t *bd)
+{
+	panel_spi_onekvm_fdt_fixup(blob);
+	return 0;
+}
+#endif
