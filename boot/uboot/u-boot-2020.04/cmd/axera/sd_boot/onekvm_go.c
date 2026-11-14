@@ -6,8 +6,10 @@
 #include <dm.h>
 #include <fs.h>
 #include <memalign.h>
+#include <fdt_support.h>
 #include <asm/io.h>
 #include <asm/unaligned.h>
+#include <asm/arch/boot_mode.h>
 #include <linux/delay.h>
 #include <linux/errno.h>
 #include <linux/libfdt.h>
@@ -213,6 +215,33 @@ static int go_load_slot(char *slot)
 	return -1;
 }
 
+/*
+ * Go and Go+ share one DT that describes the 256 MiB Go. As the factory U-Boot
+ * does by board ID, hand Linux all 512 MiB on a Go+.
+ */
+static void go_fixup_memory(void)
+{
+	const misc_info_t *info = (const misc_info_t *)MISC_INFO_ADDR;
+	u32 chip = readl(&info->chip_type), board = readl(&info->phy_board_id);
+	void *dtb = (void *)GO_DTB;
+
+	if (chip == AX620QF_CHIP && board == PHY_AX620QF_LP4_NANOAGENT_256M) {
+		puts("OneKVM Go: NanoKVM Go, 256 MiB\n");
+		return;
+	}
+	if (chip != AX620QE_CHIP || board != PHY_AX620QE_LP4_NANOAGENT_512M) {
+		printf("OneKVM Go: unknown board (chip %u, board %u); memory as in the DT\n",
+		       chip, board);
+		return;
+	}
+	if (fdt_open_into(dtb, dtb, fdt_totalsize(dtb) + SZ_1K) ||
+	    fdt_fixup_memory(dtb, 0x40000000ULL, SZ_512M)) {
+		puts("OneKVM Go: NanoKVM Go+, memory fixup failed; Linux uses 256 MiB\n");
+		return;
+	}
+	puts("OneKVM Go: NanoKVM Go+, 512 MiB\n");
+}
+
 static int do_onekvm_go_boot(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[])
 {
 	char command[80], args[CONFIG_SYS_CBSIZE], slot = 'A';
@@ -242,6 +271,7 @@ static int do_onekvm_go_boot(cmd_tbl_t *cmdtp, int flag, int argc, char *const a
 			goto failed;
 		printf("OneKVM Go: booting slot %c\n", slot);
 	}
+	go_fixup_memory();
 	snprintf(command, sizeof(command), "booti %lx - %lx", GO_KERNEL, GO_DTB);
 	return run_command(command, 0);
 failed:
