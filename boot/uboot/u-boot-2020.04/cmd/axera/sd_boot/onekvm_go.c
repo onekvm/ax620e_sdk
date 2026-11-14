@@ -3,6 +3,7 @@
 #include <common.h>
 #include <command.h>
 #include <cpu_func.h>
+#include <dm.h>
 #include <fs.h>
 #include <memalign.h>
 #include <asm/io.h>
@@ -55,6 +56,14 @@ int onekvm_go_board_init(void)
 	env_set("bootm_low", "40080000");
 	env_set("bootm_size", "7f80000");
 	puts("OneKVM Go: ARM64 SD, UART3, hardware watchdog active\n");
+	{
+		/* Probing the panel draws the OneKVM boot logo; boot continues without it. */
+		struct udevice *panel;
+		int ret = uclass_first_device_err(UCLASS_PANEL_SPI, &panel);
+
+		if (ret)
+			printf("OneKVM Go: boot logo unavailable (%d)\n", ret);
+	}
 	return 0;
 }
 

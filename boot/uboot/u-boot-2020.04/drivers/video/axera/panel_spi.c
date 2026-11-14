@@ -11,8 +11,15 @@
 
 #include "ax_vo_common.h"
 
-#ifdef CONFIG_ONEKVM_SD_BOOT
+/* OneKVM SD boot: draw the OneKVM boot artwork in the panel's native order. */
+#if defined(CONFIG_ONEKVM_SD_BOOT)
 #include "bootlogo/onekvm_logo.h"
+#define ONEKVM_LOGO_RUNS onekvm_logo_runs
+#define ONEKVM_LOGO_PANEL "JD9853 172x320"
+#elif defined(CONFIG_ONEKVM_GO_BOOT)
+#include "bootlogo/onekvm_go_logo.h"
+#define ONEKVM_LOGO_RUNS onekvm_go_logo_runs
+#define ONEKVM_LOGO_PANEL "ST7789P3 240x284"
 #endif
 
 struct Image {
@@ -322,7 +329,7 @@ static int panel_spi_init(struct udevice *dev) {
   const u8 *pdata = NULL;
   struct spi_slave *slave;
   struct panel_spi_device *panel_spi;
-#ifndef CONFIG_ONEKVM_SD_BOOT
+#ifndef ONEKVM_LOGO_RUNS
   int image_index = -1;
   bool fixed_image = false;
   char server_buf[32];
@@ -380,7 +387,7 @@ static int panel_spi_init(struct udevice *dev) {
     }
   }
 
-#ifdef CONFIG_ONEKVM_SD_BOOT
+#ifdef ONEKVM_LOGO_RUNS
   {
     /* RLE decodes into a bounded wire buffer; pixels are RGB565, MSB first. */
     u8 pixels[512];
@@ -396,9 +403,9 @@ static int panel_spi_init(struct udevice *dev) {
       ret = ret ? ret : -EIO;
       goto release;
     }
-    for (run = 0; run < ARRAY_SIZE(onekvm_logo_runs); run += 2) {
-      u16 color = onekvm_logo_runs[run + 1];
-      for (count = 0; count < onekvm_logo_runs[run]; count++) {
+    for (run = 0; run < ARRAY_SIZE(ONEKVM_LOGO_RUNS); run += 2) {
+      u16 color = ONEKVM_LOGO_RUNS[run + 1];
+      for (count = 0; count < ONEKVM_LOGO_RUNS[run]; count++) {
         pixels[used++] = color >> 8;
         pixels[used++] = color;
         if (used == sizeof(pixels)) {
@@ -414,7 +421,7 @@ static int panel_spi_init(struct udevice *dev) {
       if (ret)
         goto release;
     }
-    puts("OneKVM: boot logo ready (JD9853 172x320)\n");
+    puts("OneKVM: boot logo ready (" ONEKVM_LOGO_PANEL ")\n");
   }
 #else
   image_index = 0;
@@ -615,7 +622,7 @@ static int panel_spi_probe(struct udevice *dev) {
 
 static const struct udevice_id panel_spi_ids[] = {
     {.compatible = "axera,panel_spi"},
-#if defined(UBOOT_SPI2_SIPEED_LOGO) || defined(CONFIG_ONEKVM_SD_BOOT)
+#if defined(UBOOT_SPI2_SIPEED_LOGO) || defined(ONEKVM_LOGO_RUNS)
     {.compatible = "sipeed,for_jd9853"},
     {.compatible = "sipeed,for_st7789p3"},
 #endif

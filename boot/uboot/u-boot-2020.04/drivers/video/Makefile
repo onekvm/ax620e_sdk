@@ -25,6 +25,7 @@ obj-${CONFIG_VIDEO_AXERA} += axera/
 ifeq ($(CONFIG_VIDEO_AXERA),)
 # The SD boot splash needs only the SPI panel, not the HDMI/MIPI display stack.
 obj-$(CONFIG_ONEKVM_SD_BOOT) += axera/panel_spi.o
+obj-$(CONFIG_ONEKVM_GO_BOOT) += axera/panel_spi.o
 endif
 
 obj-$(CONFIG_AM335X_LCD) += am335x-fb.o
