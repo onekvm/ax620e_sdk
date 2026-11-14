@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <fs.h>
 #include <hexdump.h>
+#include <linux/libfdt.h>
 #include <malloc.h>
 #include <spi.h>
 
@@ -14,6 +15,8 @@
 
 #ifdef CONFIG_ONEKVM_SD_BOOT
 #include "bootlogo/onekvm_logo.h"
+
+static bool onekvm_logo_ready;
 #endif
 
 struct Image {
@@ -416,6 +419,7 @@ static int panel_spi_init(struct udevice *dev) {
         goto release;
     }
     puts("OneKVM: boot logo ready (JD9853 172x320)\n");
+    onekvm_logo_ready = true;
   }
 #else
   image_index = 0;
@@ -586,6 +590,21 @@ static int on_onekvm_progress(const char *name, const char *value,
 	return 0;
 }
 U_BOOT_ENV_CALLBACK(onekvm_progress, on_onekvm_progress);
+
+/*
+ * Mark the Linux panel node so its driver keeps this logo: resetting the
+ * panel blanks it until Linux draws.
+ */
+void panel_spi_onekvm_fdt_fixup(void *blob)
+{
+	int node;
+
+	if (!onekvm_logo_ready)
+		return;
+	node = fdt_node_offset_by_compatible(blob, -1, "jadard,jd9853");
+	if (node < 0 || fdt_setprop_empty(blob, node, "onekvm,boot-logo"))
+		puts("OneKVM: Linux will reset the panel\n");
+}
 #endif
 
 int panel_spi_show_recovery_logo(void)
