@@ -137,7 +137,12 @@ static void update_cmdline(char * bootargs)
 static char *sd_img_name[] = {
 	[DDRINIT] = "0:ddrinit.img",
 	[ATF] = "0:atf.img",
+#ifdef AX_SPL_GO_RAM_TEST
+	/* Lab RAM test: leave the factory uboot.bin on the card untouched. */
+	[UBOOT] = "0:ub64.bin",
+#else
 	[UBOOT] = "0:uboot.bin",
+#endif
 	[OPTEE] = "0:optee.img",
 	[DTB] = "0:dtb.img",
 	[KERNEL] = "0:kernel.img",

@@ -409,6 +409,41 @@ static void clk_aux_config(void)
 	writel(0x110, 0x23401b8);
 }
 
+#ifdef AX_SPL_GO_RAM_TEST
+/*
+ * Lab-only Go SPL entered in RAM from the factory U-Boot. UART3 is already
+ * configured there, so markers are written directly with a bounded wait and
+ * show how far the SD load and BL31 handoff get. DDR is live and not retrained.
+ */
+static void go_ram_mark(const char *message)
+{
+	while (*message) {
+		u32 spins = 200000;
+
+		while (!(readl(USE_UART + LSR_R) & UART_LSR_THRE) && --spins)
+			;
+		writel(*message++, USE_UART + THR_R);
+	}
+}
+
+static void go_ram_hex(const char *label, unsigned long value)
+{
+	char digits[19] = "0x";
+	int i;
+
+	for (i = 0; i < 16; i++)
+		digits[2 + i] = "0123456789abcdef"[(value >> (60 - 4 * i)) & 0xf];
+	digits[18] = 0;
+	go_ram_mark(label);
+	go_ram_mark(digits);
+	go_ram_mark("\r\n");
+}
+#else
+#define go_ram_mark(message) do { } while (0)
+#define go_ram_hex(label, value) do { } while (0)
+#endif
+
+#ifndef AX_SPL_GO_RAM_TEST
 static void set_ddr_init(void)
 {
 	ax_memset((void *)DDR_INFO_ADDR, 0, sizeof(ddr_info_t));
@@ -421,6 +456,7 @@ static void set_ddr_init(void)
 	mc20e_ddr_init((void *)DDRINIT_PARAM_HEADER_BASE + sizeof(struct img_header));
 #endif
 }
+#endif
 
 int main(void)
 {
@@ -431,12 +467,16 @@ int main(void)
 	char flash_type, chip_mode;
 	boot_mode_info_t *boot_mode = (boot_mode_info_t *) BOOT_MODE_INFO_ADDR;
 
+	go_ram_mark("\r\nOneKVM Go RAM SPL: entry\r\n");
 	timer_init();
 #ifdef AX_SPL_NANOKVM_GO
 	nanokvm_go_boot_watchdog();
 #endif
+	go_ram_mark("watchdog armed\r\n");
 	get_misc_info();
+	go_ram_mark("misc info\r\n");
 	chip_init();
+	go_ram_mark("chip init\r\n");
 	generic_timer_init();
 
 #ifdef SAMPLE_EFUSE_WRITE
@@ -445,6 +485,7 @@ int main(void)
 #ifndef DDR_ENV_EDA
 	uart_init(USE_UART);
 	info("\r\nenter spl\r\n");
+	go_ram_mark("uart init\r\n");
 
 	set_pwm_volt();
 
@@ -472,6 +513,16 @@ int main(void)
 	boot_mode->boot_type = EMMC_BOOT_UDA;
 	boot_mode->is_sd_boot = 0;
 #endif
+#ifdef AX_SPL_GO_RAM_TEST
+	go_ram_hex("chip mode ", chip_mode);
+	go_ram_hex("flash type ", flash_type);
+	go_ram_hex("download channel ", readl(COMM_SYS_DUMMY_SW5));
+	if (!boot_mode->is_sd_boot) {
+		/* A cold SD boot has the BootROM's SD channel here. */
+		boot_mode->is_sd_boot = true;
+		go_ram_mark("SD entry forced\r\n");
+	}
+#endif
 	if (boot_mode->is_sd_boot)
 		flash_type = FLASH_SD;
 	WRITE_DEBUG_BOOT_TIME(DBG_READ_DDR_INIT_DATA_START); //read ddr init data start
@@ -489,7 +540,11 @@ int main(void)
 #endif
 	WRITE_DEBUG_BOOT_TIME(DBG_READ_DDR_INIT_DATA_END); //read ddr init data end
 #endif
+#ifdef AX_SPL_GO_RAM_TEST
+	go_ram_mark("DDR init skipped\r\n");
+#else
 	set_ddr_init();
+#endif
 	WRITE_DEBUG_BOOT_TIME(DBG_DDR_INIT_END); //ddr init end
 
 	clk_aux_config();
@@ -513,13 +568,16 @@ int main(void)
 	riscv_boot_process(flash_type);
 #endif
 
+	go_ram_mark("loading U-Boot\r\n");
 #ifdef AX_BOOT_OPTIMIZATION_SUPPORT
 	boot_addr = fast_boot_process(flash_type, &dtb_addr);
 #else
 	boot_addr = flash_uboot_process(flash_type);
 #endif
+	go_ram_hex("U-Boot entry ", boot_addr);
 
 #ifdef SUPPORT_ATF
+	go_ram_mark("loading BL31\r\n");
 	atf_process(flash_type, boot_addr, dtb_addr);
 	WRITE_DEBUG_BOOT_TIME(DBG_READ_IMAGE_END); //spl read img end
 #else

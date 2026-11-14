@@ -221,6 +221,14 @@ ifeq ($(AX_SPL_NANOKVM_GO),TRUE)
 CPPFLAGS += -DAX_SPL_NANOKVM_GO
 endif
 
+# Lab-only: entered in RAM from the factory U-Boot; never a boot.bin payload.
+ifeq ($(AX_SPL_GO_RAM_TEST),TRUE)
+ifneq ($(AX_SPL_NANOKVM_GO),TRUE)
+$(error AX_SPL_GO_RAM_TEST requires AX_SPL_NANOKVM_GO)
+endif
+CPPFLAGS += -DAX_SPL_GO_RAM_TEST
+endif
+
 all: $(IMAGE)
 $(IMAGE): $(OBJS)
 	$(LD) $(LDFLAGS) $(OBJS) -o $@ -L $(shell dirname `$(CC) $(c_flags) -print-libgcc-file-name`) -lgcc
