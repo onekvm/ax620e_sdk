@@ -11,15 +11,37 @@
 
 #include "ax_vo_common.h"
 
-/* OneKVM SD boot: draw the OneKVM boot artwork in the panel's native order. */
+/*
+ * OneKVM SD boot: draw the OneKVM boot artwork in the panel's native order.
+ * Canvas (x, y) of the landscape artwork is native row ONEKVM_PANEL_ROW(x),
+ * column ONEKVM_PANEL_COLUMN(y); the full window is what later writers that
+ * set none expect. The boot bar is drawn when the artwork header defines
+ * ONEKVM_BAR_*.
+ */
 #if defined(CONFIG_ONEKVM_SD_BOOT)
 #include "bootlogo/onekvm_logo.h"
 #define ONEKVM_LOGO_RUNS onekvm_logo_runs
 #define ONEKVM_LOGO_PANEL "JD9853 172x320"
+/* 320x172 canvas; 172 visible columns from 0x22 on a 240-column controller. */
+#define ONEKVM_PANEL_ROW(x) (319 - (x))
+#define ONEKVM_PANEL_COLUMN(y) (0x22 + (y))
+#define ONEKVM_PANEL_FIRST_COLUMN 0x22
+#define ONEKVM_PANEL_COLUMNS 172
+#define ONEKVM_PANEL_ROWS 320
 #elif defined(CONFIG_ONEKVM_GO_BOOT)
 #include "bootlogo/onekvm_go_logo.h"
 #define ONEKVM_LOGO_RUNS onekvm_go_logo_runs
 #define ONEKVM_LOGO_PANEL "ST7789P3 240x284"
+/* 284x240 canvas, 90 degrees from the panel; power-on window 240x320. */
+#define ONEKVM_PANEL_ROW(x) (x)
+#define ONEKVM_PANEL_COLUMN(y) (239 - (y))
+#define ONEKVM_PANEL_FIRST_COLUMN 0
+#define ONEKVM_PANEL_COLUMNS 240
+#define ONEKVM_PANEL_ROWS 320
+#endif
+
+#ifdef ONEKVM_LOGO_RUNS
+static bool onekvm_logo_ready;
 #endif
 
 struct Image {
@@ -422,6 +444,7 @@ static int panel_spi_init(struct udevice *dev) {
         goto release;
     }
     puts("OneKVM: boot logo ready (" ONEKVM_LOGO_PANEL ")\n");
+    onekvm_logo_ready = true;
   }
 #else
   image_index = 0;
@@ -470,6 +493,109 @@ release:
   spi_release_bus(slave);
   return ret;
 }
+
+#ifdef ONEKVM_BAR_WIDTH
+/* Same bar as Linux onekvm-boot-splash: rounded ends on the outer rows. */
+static u16 onekvm_bar_pixel(unsigned int x, unsigned int y, unsigned int fill)
+{
+	unsigned int inset = (y == 0 || y == ONEKVM_BAR_HEIGHT - 1) ? 2 : 0;
+
+	if (x >= inset && x + inset < fill)
+		return ONEKVM_BAR_FILL;
+	if (x >= inset && x + inset < ONEKVM_BAR_WIDTH)
+		return ONEKVM_BAR_TRACK;
+	return ONEKVM_BAR_BACKGROUND;
+}
+
+static int onekvm_panel_write(struct spi_slave *slave,
+			      struct panel_spi_device *panel, u8 cmd,
+			      const u8 *data, unsigned int len)
+{
+	int ret;
+
+	if (!lcd_command(panel))
+		return -EIO;
+	ret = spi_xfer(slave, 8, &cmd, NULL, SPI_XFER_ONCE);
+	if (ret)
+		return ret;
+	if (!lcd_data(panel))
+		return -EIO;
+	return len ? spi_xfer(slave, len * 8, data, NULL, SPI_XFER_ONCE) : 0;
+}
+
+/* Native columns [column, column + columns) and rows [row, row + rows). */
+static int onekvm_panel_window(struct spi_slave *slave,
+			       struct panel_spi_device *panel,
+			       unsigned int column, unsigned int columns,
+			       unsigned int row, unsigned int rows)
+{
+	u8 caset[4], raset[4];
+	int ret;
+
+	caset[0] = column >> 8;
+	caset[1] = column;
+	caset[2] = (column + columns - 1) >> 8;
+	caset[3] = column + columns - 1;
+	raset[0] = row >> 8;
+	raset[1] = row;
+	raset[2] = (row + rows - 1) >> 8;
+	raset[3] = row + rows - 1;
+	ret = onekvm_panel_write(slave, panel, 0x2a, caset, sizeof(caset));
+	return ret ? ret : onekvm_panel_write(slave, panel, 0x2b, raset, sizeof(raset));
+}
+
+/*
+ * Redraw the boot bar under the logo with `percent` filled. Bar columns are
+ * native rows and bar rows native columns, so the bar is one small window.
+ * -ENODEV when no logo was drawn.
+ */
+int panel_spi_onekvm_progress(unsigned int percent)
+{
+	u8 pixels[ONEKVM_BAR_WIDTH * ONEKVM_BAR_HEIGHT * 2];
+	unsigned int fill = ONEKVM_BAR_WIDTH * min(percent, 100U) / 100;
+	unsigned int left = ONEKVM_PANEL_ROW(ONEKVM_BAR_X);
+	unsigned int right = ONEKVM_PANEL_ROW(ONEKVM_BAR_X + ONEKVM_BAR_WIDTH - 1);
+	unsigned int top = ONEKVM_PANEL_COLUMN(ONEKVM_BAR_Y);
+	unsigned int bottom = ONEKVM_PANEL_COLUMN(ONEKVM_BAR_Y + ONEKVM_BAR_HEIGHT - 1);
+	unsigned int row = min(left, right), column = min(top, bottom), x, y;
+	struct panel_spi_device *panel;
+	struct spi_slave *slave;
+	struct udevice *dev;
+	int ret;
+
+	if (!onekvm_logo_ready)
+		return -ENODEV;
+	for (x = 0; x < ONEKVM_BAR_WIDTH; x++) {
+		for (y = 0; y < ONEKVM_BAR_HEIGHT; y++) {
+			unsigned int at = (ONEKVM_PANEL_ROW(ONEKVM_BAR_X + x) - row) *
+				ONEKVM_BAR_HEIGHT +
+				ONEKVM_PANEL_COLUMN(ONEKVM_BAR_Y + y) - column;
+			u16 color = onekvm_bar_pixel(x, y, fill);
+
+			pixels[at * 2] = color >> 8;
+			pixels[at * 2 + 1] = color;
+		}
+	}
+	ret = uclass_first_device_err(UCLASS_PANEL_SPI, &dev);
+	if (ret)
+		return ret;
+	slave = dev_get_parent_priv(dev);
+	panel = dev_get_uclass_priv(dev);
+	ret = spi_claim_bus(slave);
+	if (ret)
+		return ret;
+	ret = onekvm_panel_window(slave, panel, column, ONEKVM_BAR_HEIGHT,
+				  row, ONEKVM_BAR_WIDTH);
+	if (!ret)
+		ret = onekvm_panel_write(slave, panel, 0x2c, pixels, sizeof(pixels));
+	/* Restore the full window for writers that set none (recovery logo). */
+	if (!ret)
+		ret = onekvm_panel_window(slave, panel, ONEKVM_PANEL_FIRST_COLUMN,
+					  ONEKVM_PANEL_COLUMNS, 0, ONEKVM_PANEL_ROWS);
+	spi_release_bus(slave);
+	return ret;
+}
+#endif
 
 int panel_spi_show_recovery_logo(void)
 {

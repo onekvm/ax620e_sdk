@@ -28,6 +28,17 @@
 #define GO_DTB_ZIP      0x44400000UL
 #define GO_DTB_ZEND     0x44500000UL
 
+/*
+ * Boot bar under the logo; the Linux initramfs continues it from its
+ * `initramfs` checkpoint (onekvm-boot-splash), which must stay above these.
+ * PLACEHOLDER until measured on a Go: percent of the time from the logo to
+ * the first screen-service frame.
+ */
+#define GO_PROGRESS_KERNEL 2	/* kernel capsule read from SD */
+#define GO_PROGRESS_LINUX  4	/* images checked, starting Linux */
+
+int panel_spi_onekvm_progress(unsigned int percent);
+
 static void go_watchdog_arm(void)
 {
 	const ulong base = WDT0_BASE;
@@ -67,6 +78,15 @@ int onekvm_go_board_init(void)
 			printf("OneKVM Go: boot logo unavailable (%d)\n", ret);
 	}
 	return 0;
+}
+
+/* Without a logo the panel already reported its error; the bar is optional. */
+static void go_progress(unsigned int percent)
+{
+	int ret = panel_spi_onekvm_progress(percent);
+
+	if (ret && ret != -ENODEV)
+		printf("OneKVM Go: boot bar not drawn (%d)\n", ret);
 }
 
 static u32 go_word_sum(const void *data, size_t size)
@@ -156,8 +176,11 @@ static int go_load_images(const char *kernel_name, const char *dtb_name)
 	u64 text_offset, image_size, image_flags;
 	void *kernel = (void *)GO_KERNEL, *dtb = (void *)GO_DTB;
 
-	if (go_load_capsule(kernel_name, GO_KERNEL_ZIP, GO_KERNEL_ZEND, &kernel_size) ||
-	    go_load_capsule(dtb_name, GO_DTB_ZIP, GO_DTB_ZEND, &dtb_size) ||
+	if (go_load_capsule(kernel_name, GO_KERNEL_ZIP, GO_KERNEL_ZEND, &kernel_size))
+		return -1;
+	/* The kernel capsule with its initramfs is the longest read. */
+	go_progress(GO_PROGRESS_KERNEL);
+	if (go_load_capsule(dtb_name, GO_DTB_ZIP, GO_DTB_ZEND, &dtb_size) ||
 	    go_inflate(GO_KERNEL_ZIP + SECBOOT_HEADER_SIZE, kernel_size,
 		       GO_KERNEL, GO_KERNEL_END, &raw_kernel) ||
 	    go_inflate(GO_DTB_ZIP + SECBOOT_HEADER_SIZE, dtb_size,
@@ -272,6 +295,7 @@ static int do_onekvm_go_boot(cmd_tbl_t *cmdtp, int flag, int argc, char *const a
 		printf("OneKVM Go: booting slot %c\n", slot);
 	}
 	go_fixup_memory();
+	go_progress(GO_PROGRESS_LINUX);
 	snprintf(command, sizeof(command), "booti %lx - %lx", GO_KERNEL, GO_DTB);
 	return run_command(command, 0);
 failed:
