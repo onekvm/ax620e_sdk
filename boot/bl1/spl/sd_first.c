@@ -14,7 +14,7 @@ void sd_first_log(const char *message)
 {
 	/* Keep media decisions visible with the production build's quiet logging. */
 	while (*message)
-		uart_putc(UART0_BASE, *message++, 100);
+		uart_putc(USE_UART, *message++, 100);
 }
 
 int sd_first_probe_expired(void)

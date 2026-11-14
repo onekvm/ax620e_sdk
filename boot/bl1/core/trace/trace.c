@@ -29,7 +29,7 @@ void ax_print_str(char * string)
 		return;
 
 	while('\0' != *ch) {
-		uart_putc(UART0_BASE, *ch++, 100);
+		uart_putc(USE_UART, *ch++, 100);
 	}
 }
 
@@ -54,7 +54,7 @@ void ax_print_num(unsigned long int unum, unsigned int radix)
 	} while (unum > 0U);
 
 	while (--i >= 0) {
-		uart_putc(UART0_BASE, num_buf[i], 100);
+		uart_putc(USE_UART, num_buf[i], 100);
 	}
 }
 
